@@ -27,9 +27,9 @@
 #ifndef EGL_INTERNAL_H_
 #define EGL_INTERNAL_H_
 
-#define _EGL_VENDOR "Norbert Nopper"
+#define _EGL_VENDOR "Norbert Nopper/Basil Fierz"
 
-#define _EGL_VERSION "1.5 Version 0.3.3"
+#define _EGL_VERSION "1.5 Version 0.3.4"
 
 #include <stdlib.h>
 #include <string.h>
