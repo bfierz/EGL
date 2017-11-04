@@ -34,6 +34,25 @@
 
 static EGL_THREAD_LOCAL LocalStorage g_localStorage = { {0, 0, 0}, EGL_SUCCESS, EGL_NONE, 0, EGL_NO_CONTEXT };
 
+//-----------------------------------------------------------------------------
+//Help functions
+
+static EGLDisplayImpl * findStorageDisplay(EGLDisplay dpy)
+{
+	EGLDisplayImpl * walkerDpy = g_localStorage.rootDpy;
+	while (walkerDpy)
+	{
+		if ((EGLDisplay)walkerDpy == dpy)
+			return walkerDpy;
+
+		walkerDpy = walkerDpy->next;
+	}
+
+	return 0;
+}
+
+//-----------------------------------------------------------------------------
+
 static EGLBoolean _eglInternalInit()
 {
 	return __internalInit(&g_localStorage.dummy);
@@ -47,85 +66,78 @@ static void _eglInternalTerminate()
 static void _eglInternalCleanup()
 {
 	EGLDisplayImpl* tempDpy = 0;
-
 	EGLDisplayImpl* walkerDpy = g_localStorage.rootDpy;
 
 	while (walkerDpy)
 	{
-		EGLSurfaceImpl* tempSurface = 0;
-
+		EGLSurfaceImpl* prewSurface = 0;
 		EGLSurfaceImpl* walkerSurface = walkerDpy->rootSurface;
-
-		EGLContextImpl* tempCtx = 0;
-
+		EGLContextImpl* prewCtx = 0;
 		EGLContextImpl* walkerCtx = walkerDpy->rootCtx;
 
 		while (walkerSurface)
 		{
-			if (walkerSurface->destroy && walkerSurface != walkerDpy->currentDraw && walkerSurface != walkerDpy->currentRead)
+			if (walkerSurface->destroy && 
+				walkerSurface != walkerDpy->currentDraw && 
+				walkerSurface != walkerDpy->currentRead)
 			{
 				EGLSurfaceImpl* deleteSurface = walkerSurface;
 
-				if (tempSurface == 0)
+				if (prewSurface == 0)
 				{
 					walkerDpy->rootSurface = deleteSurface->next;
-
 					walkerSurface = walkerDpy->rootSurface;
 				}
 				else
 				{
-					tempSurface->next = deleteSurface->next;
-
-					walkerSurface = tempSurface;
+					prewSurface->next = deleteSurface->next;
+					walkerSurface = prewSurface;
 				}
 
 				free(deleteSurface);
 			}
 
-			tempSurface = walkerSurface;
-
-			walkerSurface = walkerSurface->next;
+			prewSurface = walkerSurface;
+			if (walkerSurface)
+				walkerSurface = walkerSurface->next;
 		}
 
 		while (walkerCtx)
 		{
 			// Avoid deleting of a shared context.
-			EGLContextImpl* innerWalkerCtx = walkerDpy->rootCtx;
+			EGLContextImpl * innerWalkerCtx = walkerDpy->rootCtx;
 			while (innerWalkerCtx)
 			{
 				if (innerWalkerCtx->sharedCtx == walkerCtx)
-				{
 					continue;
-				}
 
 				innerWalkerCtx = innerWalkerCtx->next;
 			}
 
-			if (walkerCtx->destroy && walkerCtx != walkerDpy->currentCtx && walkerCtx != g_localStorage.currentCtx)
+			if (walkerCtx->destroy && 
+				walkerCtx != walkerDpy->currentCtx && 
+				walkerCtx != g_localStorage.currentCtx)
 			{
 				EGLContextImpl* deleteCtx = walkerCtx;
 
-				if (tempCtx == 0)
+				if (prewCtx == 0)
 				{
 					walkerDpy->rootCtx = deleteCtx->next;
-
 					walkerCtx = walkerDpy->rootCtx;
 				}
 				else
 				{
-					tempCtx->next = deleteCtx->next;
-
-					walkerCtx = tempCtx;
+					prewCtx->next = deleteCtx->next;
+					walkerCtx = prewCtx;
 				}
 
 				// Freeing the context.
 				while (deleteCtx->rootCtxList)
 				{
 					EGLContextListImpl* deleteCtxList = deleteCtx->rootCtxList;
-
 					deleteCtx->rootCtxList = deleteCtx->rootCtxList->next;
 
-					__deleteContext(walkerDpy, &deleteCtxList->nativeContextContainer);
+					__deleteContext(walkerDpy, &deleteCtxList->nativeContext);
 
 					free(deleteCtxList);
 				}
@@ -133,46 +145,40 @@ static void _eglInternalCleanup()
 				free(deleteCtx);
 			}
 
-			tempCtx = walkerCtx;
-
+			prewCtx = walkerCtx;
 			if (walkerCtx)
-			{
 				walkerCtx = walkerCtx->next;
-			}
 		}
 
 		if (walkerDpy->destroy)
 		{
-			if (walkerDpy->rootSurface == 0 && walkerDpy->rootCtx == 0 && walkerDpy->currentDraw == EGL_NO_SURFACE && walkerDpy->currentRead == EGL_NO_SURFACE && walkerDpy->currentCtx == EGL_NO_CONTEXT)
+			if (walkerDpy->rootSurface == 0 && 
+				walkerDpy->rootCtx == 0 && 
+				walkerDpy->currentDraw == EGL_NO_SURFACE && 
+				walkerDpy->currentRead == EGL_NO_SURFACE && 
+				walkerDpy->currentCtx == EGL_NO_CONTEXT)
 			{
 				EGLConfigImpl* walkerConfig = walkerDpy->rootConfig;
-
 				EGLConfigImpl* deleteConfig;
 
 				while (walkerConfig)
 				{
 					deleteConfig = walkerConfig;
-
 					walkerConfig = walkerConfig->next;
-
 					free(deleteConfig);
 				}
+
 				walkerDpy->rootConfig = 0;
 
-				//
-
 				EGLDisplayImpl* deleteDpy = walkerDpy;
-
 				if (tempDpy == 0)
 				{
 					g_localStorage.rootDpy = deleteDpy->next;
-
 					walkerDpy = g_localStorage.rootDpy;
 				}
 				else
 				{
 					tempDpy->next = deleteDpy->next;
-
 					walkerDpy = tempDpy;
 				}
 
@@ -183,15 +189,11 @@ static void _eglInternalCleanup()
 		tempDpy = walkerDpy;
 
 		if (walkerDpy)
-		{
 			walkerDpy = walkerDpy->next;
-		}
 	}
 
 	if (!g_localStorage.rootDpy)
-	{
 		_eglInternalTerminate();
-	}
 }
 
 void _eglInternalSetDefaultConfig(EGLConfigImpl* config)
@@ -326,28 +328,24 @@ EGLBoolean _eglChooseConfig(EGLDisplay dpy, const EGLint *attrib_list, EGLConfig
 	if (!attrib_list)
 	{
 		g_localStorage.error = EGL_BAD_PARAMETER;
-
 		return EGL_FALSE;
 	}
 
 	if (!configs)
 	{
 		g_localStorage.error = EGL_BAD_PARAMETER;
-
 		return EGL_FALSE;
 	}
 
 	if (config_size == 0)
 	{
 		g_localStorage.error = EGL_BAD_PARAMETER;
-
 		return EGL_FALSE;
 	}
 
 	if (!num_config)
 	{
 		g_localStorage.error = EGL_BAD_PARAMETER;
-
 		return EGL_FALSE;
 	}
 
@@ -360,7 +358,6 @@ EGLBoolean _eglChooseConfig(EGLDisplay dpy, const EGLint *attrib_list, EGLConfig
 			if (!walkerDpy->initialized || walkerDpy->destroy)
 			{
 				g_localStorage.error = EGL_NOT_INITIALIZED;
-
 				return EGL_FALSE;
 			}
 
@@ -373,338 +370,332 @@ EGLBoolean _eglChooseConfig(EGLDisplay dpy, const EGLint *attrib_list, EGLConfig
 			while (attrib_list[attribListIndex] != EGL_NONE)
 			{
 				EGLint value = attrib_list[attribListIndex + 1];
-
 				switch (attrib_list[attribListIndex])
 				{
-					case EGL_ALPHA_MASK_SIZE:
+				case EGL_ALPHA_MASK_SIZE:
+				{
+					if (value < 0)
 					{
-						if (value < 0)
-						{
-							g_localStorage.error = EGL_BAD_ATTRIBUTE;
-
-							return EGL_FALSE;
-						}
-
-						config.alphaMaskSize = value;
+						g_localStorage.error = EGL_BAD_ATTRIBUTE;
+						return EGL_FALSE;
 					}
-					break;
-					case EGL_ALPHA_SIZE:
+
+					config.alphaMaskSize = value;
+				}
+				break;
+				case EGL_ALPHA_SIZE:
+				{
+					if (value < 0)
 					{
-						if (value < 0)
-						{
-							g_localStorage.error = EGL_BAD_ATTRIBUTE;
-
-							return EGL_FALSE;
-						}
-
-						config.alphaSize = value;
+						g_localStorage.error = EGL_BAD_ATTRIBUTE;
+						return EGL_FALSE;
 					}
-					break;
-					case EGL_BIND_TO_TEXTURE_RGB:
+
+					config.alphaSize = value;
+				}
+				break;
+				case EGL_BIND_TO_TEXTURE_RGB:
+				{
+					if (value != EGL_DONT_CARE && value != EGL_TRUE && value != EGL_FALSE)
 					{
-						if (value != EGL_DONT_CARE && value != EGL_TRUE && value != EGL_FALSE)
-						{
-							g_localStorage.error = EGL_BAD_ATTRIBUTE;
-
-							return EGL_FALSE;
-						}
-
-						config.bindToTextureRGB = value;
+						g_localStorage.error = EGL_BAD_ATTRIBUTE;
+						return EGL_FALSE;
 					}
-					break;
-					case EGL_BIND_TO_TEXTURE_RGBA:
+
+					config.bindToTextureRGB = value;
+				}
+				break;
+				case EGL_BIND_TO_TEXTURE_RGBA:
+				{
+					if (value != EGL_DONT_CARE && value != EGL_TRUE && value != EGL_FALSE)
 					{
-						if (value != EGL_DONT_CARE && value != EGL_TRUE && value != EGL_FALSE)
-						{
-							g_localStorage.error = EGL_BAD_ATTRIBUTE;
-
-							return EGL_FALSE;
-						}
-
-						config.bindToTextureRGBA = value;
+						g_localStorage.error = EGL_BAD_ATTRIBUTE;
+						return EGL_FALSE;
 					}
-					break;
-					case EGL_BLUE_SIZE:
+
+					config.bindToTextureRGBA = value;
+				}
+				break;
+				case EGL_BLUE_SIZE:
+				{
+					if (value < 0)
 					{
-						if (value < 0)
-						{
-							g_localStorage.error = EGL_BAD_ATTRIBUTE;
-
-							return EGL_FALSE;
-						}
-
-						config.blueSize = value;
+						g_localStorage.error = EGL_BAD_ATTRIBUTE;
+						return EGL_FALSE;
 					}
-					break;
-					case EGL_BUFFER_SIZE:
-					{
-						if (value < 0)
-						{
-							g_localStorage.error = EGL_BAD_ATTRIBUTE;
 
-							return EGL_FALSE;
-						}
-
-						config.bufferSize = value;
-					}
-					break;
-					case EGL_COLOR_BUFFER_TYPE:
-					{
-						if (value != EGL_RGB_BUFFER && value != EGL_LUMINANCE_BUFFER)
-						{
-							g_localStorage.error = EGL_BAD_ATTRIBUTE;
-
-							return EGL_FALSE;
-						}
-
-						config.colorBufferType = value;
-					}
-					break;
-					case EGL_CONFIG_CAVEAT:
-					{
-						if (value != EGL_DONT_CARE && value != EGL_NONE && value != EGL_SLOW_CONFIG && value != EGL_NON_CONFORMANT_CONFIG)
-						{
-							g_localStorage.error = EGL_BAD_ATTRIBUTE;
-
-							return EGL_FALSE;
-						}
-
-						config.configCaveat = value;
-					}
-					break;
-					case EGL_CONFIG_ID:
-					{
-						config.configId = value;
-					}
-					break;
-					case EGL_CONFORMANT:
-					{
-						if (value & ~(EGL_OPENGL_BIT | EGL_OPENGL_ES_BIT | EGL_OPENGL_ES2_BIT | EGL_OPENGL_ES3_BIT | EGL_OPENVG_BIT))
-						{
-							g_localStorage.error = EGL_BAD_ATTRIBUTE;
-
-							return EGL_FALSE;
-						}
-
-						config.conformant = value;
-					}
-					break;
-					case EGL_DEPTH_SIZE:
-					{
-						if (value < 0)
-						{
-							g_localStorage.error = EGL_BAD_ATTRIBUTE;
-
-							return EGL_FALSE;
-						}
-
-						config.depthSize = value;
-					}
-					break;
-					case EGL_GREEN_SIZE:
-					{
-						if (value < 0)
-						{
-							g_localStorage.error = EGL_BAD_ATTRIBUTE;
-
-							return EGL_FALSE;
-						}
-
-						config.greenSize = value;
-					}
-					break;
-					case EGL_LEVEL:
-					{
-						if (value < 0)
-						{
-							g_localStorage.error = EGL_BAD_ATTRIBUTE;
-
-							return EGL_FALSE;
-						}
-
-						config.level = value;
-					}
-					break;
-					case EGL_LUMINANCE_SIZE:
-					{
-						if (value < 0)
-						{
-							g_localStorage.error = EGL_BAD_ATTRIBUTE;
-
-							return EGL_FALSE;
-						}
-
-						config.luminanceSize = value;
-					}
-					break;
-					case EGL_MATCH_NATIVE_PIXMAP:
-					{
-						config.matchNativePixmap = value;
-					}
-					break;
-					case EGL_NATIVE_RENDERABLE:
-					{
-						if (value != EGL_DONT_CARE && value != EGL_TRUE && value != EGL_FALSE)
-						{
-							g_localStorage.error = EGL_BAD_ATTRIBUTE;
-
-							return EGL_FALSE;
-						}
-
-						config.nativeRenderable = value;
-					}
-					break;
-					case EGL_MAX_SWAP_INTERVAL:
-					{
-						if (value < 0)
-						{
-							g_localStorage.error = EGL_BAD_ATTRIBUTE;
-
-							return EGL_FALSE;
-						}
-
-						config.maxSwapInterval = value;
-					}
-					break;
-					case EGL_MIN_SWAP_INTERVAL:
-					{
-						if (value < 0)
-						{
-							g_localStorage.error = EGL_BAD_ATTRIBUTE;
-
-							return EGL_FALSE;
-						}
-
-						config.minSwapInterval = value;
-					}
-					break;
-					case EGL_RED_SIZE:
-					{
-						if (value < 0)
-						{
-							g_localStorage.error = EGL_BAD_ATTRIBUTE;
-
-							return EGL_FALSE;
-						}
-
-						config.redSize = value;
-					}
-					break;
-					case EGL_SAMPLE_BUFFERS:
-					{
-						if (value < 0)
-						{
-							g_localStorage.error = EGL_BAD_ATTRIBUTE;
-
-							return EGL_FALSE;
-						}
-
-						config.sampleBuffers = value;
-					}
-					break;
-					case EGL_SAMPLES:
-					{
-						if (value < 0)
-						{
-							g_localStorage.error = EGL_BAD_ATTRIBUTE;
-
-							return EGL_FALSE;
-						}
-
-						config.samples = value;
-					}
-					break;
-					case EGL_STENCIL_SIZE:
-					{
-						if (value < 0)
-						{
-							g_localStorage.error = EGL_BAD_ATTRIBUTE;
-
-							return EGL_FALSE;
-						}
-
-						config.stencilSize = value;
-					}
-					break;
-					case EGL_RENDERABLE_TYPE:
-					{
-						if (value & ~(EGL_OPENGL_BIT | EGL_OPENGL_ES_BIT | EGL_OPENGL_ES2_BIT | EGL_OPENGL_ES3_BIT | EGL_OPENVG_BIT))
-						{
-							g_localStorage.error = EGL_BAD_ATTRIBUTE;
-
-							return EGL_FALSE;
-						}
-
-						config.renderableType = value;
-					}
-					break;
-					case EGL_SURFACE_TYPE:
-					{
-						if (value & ~(EGL_MULTISAMPLE_RESOLVE_BOX_BIT | EGL_PBUFFER_BIT | EGL_PIXMAP_BIT | EGL_SWAP_BEHAVIOR_PRESERVED_BIT | EGL_VG_ALPHA_FORMAT_PRE_BIT | EGL_VG_COLORSPACE_LINEAR_BIT | EGL_WINDOW_BIT))
-						{
-							g_localStorage.error = EGL_BAD_ATTRIBUTE;
-
-							return EGL_FALSE;
-						}
-
-						config.surfaceType = value;
-					}
-					break;
-					case EGL_TRANSPARENT_TYPE:
-					{
-						if (value != EGL_NONE && value != EGL_TRANSPARENT_TYPE)
-						{
-							g_localStorage.error = EGL_BAD_ATTRIBUTE;
-
-							return EGL_FALSE;
-						}
-
-						config.transparentType = value;
-					}
-					break;
-					case EGL_TRANSPARENT_RED_VALUE:
-					{
-						if (value < 0)
-						{
-							g_localStorage.error = EGL_BAD_ATTRIBUTE;
-
-							return EGL_FALSE;
-						}
-
-						config.transparentRedValue = value;
-					}
-					break;
-					case EGL_TRANSPARENT_GREEN_VALUE:
-					{
-						if (value < 0)
-						{
-							g_localStorage.error = EGL_BAD_ATTRIBUTE;
-
-							return EGL_FALSE;
-						}
-
-						config.transparentGreenValue = value;
-					}
-					break;
-					case EGL_TRANSPARENT_BLUE_VALUE:
-					{
-						if (value < 0)
-						{
-							g_localStorage.error = EGL_BAD_ATTRIBUTE;
-
-							return EGL_FALSE;
-						}
-
-						config.transparentBlueValue = value;
-					}
-					break;
-					default:
+					config.blueSize = value;
+				}
+				break;
+				case EGL_BUFFER_SIZE:
+				{
+					if (value < 0)
 					{
 						g_localStorage.error = EGL_BAD_ATTRIBUTE;
 
 						return EGL_FALSE;
 					}
-					break;
+
+					config.bufferSize = value;
+				}
+				break;
+				case EGL_COLOR_BUFFER_TYPE:
+				{
+					if (value != EGL_RGB_BUFFER && value != EGL_LUMINANCE_BUFFER)
+					{
+						g_localStorage.error = EGL_BAD_ATTRIBUTE;
+
+						return EGL_FALSE;
+					}
+
+					config.colorBufferType = value;
+				}
+				break;
+				case EGL_CONFIG_CAVEAT:
+				{
+					if (value != EGL_DONT_CARE && value != EGL_NONE && value != EGL_SLOW_CONFIG && value != EGL_NON_CONFORMANT_CONFIG)
+					{
+						g_localStorage.error = EGL_BAD_ATTRIBUTE;
+
+						return EGL_FALSE;
+					}
+
+					config.configCaveat = value;
+				}
+				break;
+				case EGL_CONFIG_ID:
+				{
+					config.configId = value;
+				}
+				break;
+				case EGL_CONFORMANT:
+				{
+					if (value & ~(EGL_OPENGL_BIT | EGL_OPENGL_ES_BIT | EGL_OPENGL_ES2_BIT | EGL_OPENGL_ES3_BIT | EGL_OPENVG_BIT))
+					{
+						g_localStorage.error = EGL_BAD_ATTRIBUTE;
+
+						return EGL_FALSE;
+					}
+
+					config.conformant = value;
+				}
+				break;
+				case EGL_DEPTH_SIZE:
+				{
+					if (value < 0)
+					{
+						g_localStorage.error = EGL_BAD_ATTRIBUTE;
+
+						return EGL_FALSE;
+					}
+
+					config.depthSize = value;
+				}
+				break;
+				case EGL_GREEN_SIZE:
+				{
+					if (value < 0)
+					{
+						g_localStorage.error = EGL_BAD_ATTRIBUTE;
+
+						return EGL_FALSE;
+					}
+
+					config.greenSize = value;
+				}
+				break;
+				case EGL_LEVEL:
+				{
+					if (value < 0)
+					{
+						g_localStorage.error = EGL_BAD_ATTRIBUTE;
+
+						return EGL_FALSE;
+					}
+
+					config.level = value;
+				}
+				break;
+				case EGL_LUMINANCE_SIZE:
+				{
+					if (value < 0)
+					{
+						g_localStorage.error = EGL_BAD_ATTRIBUTE;
+
+						return EGL_FALSE;
+					}
+
+					config.luminanceSize = value;
+				}
+				break;
+				case EGL_MATCH_NATIVE_PIXMAP:
+				{
+					config.matchNativePixmap = value;
+				}
+				break;
+				case EGL_NATIVE_RENDERABLE:
+				{
+					if (value != EGL_DONT_CARE && value != EGL_TRUE && value != EGL_FALSE)
+					{
+						g_localStorage.error = EGL_BAD_ATTRIBUTE;
+
+						return EGL_FALSE;
+					}
+
+					config.nativeRenderable = value;
+				}
+				break;
+				case EGL_MAX_SWAP_INTERVAL:
+				{
+					if (value < 0)
+					{
+						g_localStorage.error = EGL_BAD_ATTRIBUTE;
+
+						return EGL_FALSE;
+					}
+
+					config.maxSwapInterval = value;
+				}
+				break;
+				case EGL_MIN_SWAP_INTERVAL:
+				{
+					if (value < 0)
+					{
+						g_localStorage.error = EGL_BAD_ATTRIBUTE;
+
+						return EGL_FALSE;
+					}
+
+					config.minSwapInterval = value;
+				}
+				break;
+				case EGL_RED_SIZE:
+				{
+					if (value < 0)
+					{
+						g_localStorage.error = EGL_BAD_ATTRIBUTE;
+
+						return EGL_FALSE;
+					}
+
+					config.redSize = value;
+				}
+				break;
+				case EGL_SAMPLE_BUFFERS:
+				{
+					if (value < 0)
+					{
+						g_localStorage.error = EGL_BAD_ATTRIBUTE;
+
+						return EGL_FALSE;
+					}
+
+					config.sampleBuffers = value;
+				}
+				break;
+				case EGL_SAMPLES:
+				{
+					if (value < 0)
+					{
+						g_localStorage.error = EGL_BAD_ATTRIBUTE;
+
+						return EGL_FALSE;
+					}
+
+					config.samples = value;
+				}
+				break;
+				case EGL_STENCIL_SIZE:
+				{
+					if (value < 0)
+					{
+						g_localStorage.error = EGL_BAD_ATTRIBUTE;
+
+						return EGL_FALSE;
+					}
+
+					config.stencilSize = value;
+				}
+				break;
+				case EGL_RENDERABLE_TYPE:
+				{
+					if (value & ~(EGL_OPENGL_BIT | EGL_OPENGL_ES_BIT | EGL_OPENGL_ES2_BIT | EGL_OPENGL_ES3_BIT | EGL_OPENVG_BIT))
+					{
+						g_localStorage.error = EGL_BAD_ATTRIBUTE;
+
+						return EGL_FALSE;
+					}
+
+					config.renderableType = value;
+				}
+				break;
+				case EGL_SURFACE_TYPE:
+				{
+					if (value & ~(EGL_MULTISAMPLE_RESOLVE_BOX_BIT | EGL_PBUFFER_BIT | EGL_PIXMAP_BIT | EGL_SWAP_BEHAVIOR_PRESERVED_BIT | EGL_VG_ALPHA_FORMAT_PRE_BIT | EGL_VG_COLORSPACE_LINEAR_BIT | EGL_WINDOW_BIT))
+					{
+						g_localStorage.error = EGL_BAD_ATTRIBUTE;
+
+						return EGL_FALSE;
+					}
+
+					config.surfaceType = value;
+				}
+				break;
+				case EGL_TRANSPARENT_TYPE:
+				{
+					if (value != EGL_NONE && value != EGL_TRANSPARENT_TYPE)
+					{
+						g_localStorage.error = EGL_BAD_ATTRIBUTE;
+
+						return EGL_FALSE;
+					}
+
+					config.transparentType = value;
+				}
+				break;
+				case EGL_TRANSPARENT_RED_VALUE:
+				{
+					if (value < 0)
+					{
+						g_localStorage.error = EGL_BAD_ATTRIBUTE;
+
+						return EGL_FALSE;
+					}
+
+					config.transparentRedValue = value;
+				}
+				break;
+				case EGL_TRANSPARENT_GREEN_VALUE:
+				{
+					if (value < 0)
+					{
+						g_localStorage.error = EGL_BAD_ATTRIBUTE;
+
+						return EGL_FALSE;
+					}
+
+					config.transparentGreenValue = value;
+				}
+				break;
+				case EGL_TRANSPARENT_BLUE_VALUE:
+				{
+					if (value < 0)
+					{
+						g_localStorage.error = EGL_BAD_ATTRIBUTE;
+
+						return EGL_FALSE;
+					}
+
+					config.transparentBlueValue = value;
+				}
+				break;
+				default:
+				{
+					g_localStorage.error = EGL_BAD_ATTRIBUTE;
+
+					return EGL_FALSE;
+				}
+				break;
 				}
 
 				attribListIndex += 2;
@@ -1005,12 +996,10 @@ EGLContext _eglCreateContext(EGLDisplay dpy, EGLConfig config, EGLContext share_
 									if (!sharedWalkerCtx->initialized || sharedWalkerCtx->destroy)
 									{
 										g_localStorage.error = EGL_BAD_CONTEXT;
-
 										return EGL_FALSE;
 									}
 
 									sharedCtx = sharedWalkerCtx;
-
 									break;
 								}
 
@@ -1023,7 +1012,6 @@ EGLContext _eglCreateContext(EGLDisplay dpy, EGLConfig config, EGLContext share_
 						if (!sharedCtx)
 						{
 							g_localStorage.error = EGL_BAD_CONTEXT;
-
 							return EGL_FALSE;
 						}
 					}
@@ -1033,7 +1021,6 @@ EGLContext _eglCreateContext(EGLDisplay dpy, EGLConfig config, EGLContext share_
 					if (!newCtx)
 					{
 						g_localStorage.error = EGL_BAD_ALLOC;
-
 						return EGL_FALSE;
 					}
 
@@ -1056,7 +1043,6 @@ EGLContext _eglCreateContext(EGLDisplay dpy, EGLConfig config, EGLContext share_
 			}
 
 			g_localStorage.error = EGL_BAD_CONFIG;
-
 			return EGL_NO_CONTEXT;
 		}
 
@@ -1064,485 +1050,434 @@ EGLContext _eglCreateContext(EGLDisplay dpy, EGLConfig config, EGLContext share_
 	}
 
 	g_localStorage.error = EGL_BAD_DISPLAY;
-
 	return EGL_NO_CONTEXT;
 }
 
 EGLSurface _eglCreateWindowSurface(EGLDisplay dpy, EGLConfig config, EGLNativeWindowType win, const EGLint *attrib_list)
 {
-	EGLDisplayImpl* walkerDpy = g_localStorage.rootDpy;
-
-	while (walkerDpy)
+	EGLDisplayImpl* walkerDpy = findStorageDisplay(dpy);
+	if (walkerDpy)
 	{
-		if ((EGLDisplay)walkerDpy == dpy)
+		if (!walkerDpy->initialized || walkerDpy->destroy)
 		{
-			if (!walkerDpy->initialized || walkerDpy->destroy)
-			{
-				g_localStorage.error = EGL_NOT_INITIALIZED;
-
-				return EGL_NO_SURFACE;
-			}
-
-			EGLConfigImpl* walkerConfig = walkerDpy->rootConfig;
-
-			while (walkerConfig)
-			{
-				if ((EGLConfig)walkerConfig == config)
-				{
-					EGLSurfaceImpl* newSurface = (EGLSurfaceImpl*)malloc(sizeof(EGLSurfaceImpl));
-
-					if (!newSurface)
-					{
-						g_localStorage.error = EGL_BAD_ALLOC;
-
-						return EGL_NO_SURFACE;
-					}
-
-					if (!__createWindowSurface(newSurface, win, attrib_list, walkerDpy, walkerConfig, &g_localStorage.error))
-					{
-						free(newSurface);
-
-						return EGL_NO_SURFACE;
-					}
-
-					newSurface->next = walkerDpy->rootSurface;
-
-					walkerDpy->rootSurface = newSurface;
-
-					return (EGLSurface)newSurface;
-				}
-
-				walkerConfig = walkerConfig->next;
-			}
-
-			g_localStorage.error = EGL_BAD_CONFIG;
-
+			g_localStorage.error = EGL_NOT_INITIALIZED;
 			return EGL_NO_SURFACE;
 		}
 
-		walkerDpy = walkerDpy->next;
+		EGLConfigImpl* walkerConfig = walkerDpy->rootConfig;
+		while (walkerConfig)
+		{
+			if ((EGLConfig)walkerConfig == config)
+			{
+				EGLSurfaceImpl* newSurface = (EGLSurfaceImpl*)malloc(sizeof(EGLSurfaceImpl));
+
+				if (!newSurface)
+				{
+					g_localStorage.error = EGL_BAD_ALLOC;
+					return EGL_NO_SURFACE;
+				}
+
+				if (!__createWindowSurface(newSurface, win, attrib_list, walkerDpy, walkerConfig, &g_localStorage.error))
+				{
+					free(newSurface);
+					return EGL_NO_SURFACE;
+				}
+
+				newSurface->next = walkerDpy->rootSurface;
+				walkerDpy->rootSurface = newSurface;
+				return (EGLSurface)newSurface;
+			}
+
+			walkerConfig = walkerConfig->next;
+		}
+
+		g_localStorage.error = EGL_BAD_CONFIG;
+		return EGL_NO_SURFACE;
 	}
 
 	g_localStorage.error = EGL_BAD_DISPLAY;
-
 	return EGL_NO_SURFACE;
 }
 
 EGLBoolean _eglDestroyContext(EGLDisplay dpy, EGLContext ctx)
 {
-	EGLDisplayImpl* walkerDpy = g_localStorage.rootDpy;
-
-	while (walkerDpy)
+	EGLDisplayImpl* walkerDpy = findStorageDisplay(dpy);
+	if (walkerDpy)
 	{
-		if ((EGLDisplay)walkerDpy == dpy)
+		if (!walkerDpy->initialized || walkerDpy->destroy)
 		{
-			if (!walkerDpy->initialized || walkerDpy->destroy)
-			{
-				g_localStorage.error = EGL_NOT_INITIALIZED;
-
-				return EGL_FALSE;
-			}
-
-			EGLContextImpl* walkerCtx = walkerDpy->rootCtx;
-
-			while (walkerCtx)
-			{
-				if ((EGLContext)walkerCtx == ctx)
-				{
-					if (!walkerCtx->initialized || walkerCtx->destroy)
-					{
-						g_localStorage.error = EGL_BAD_CONTEXT;
-
-						return EGL_FALSE;
-					}
-
-					walkerCtx->initialized = EGL_FALSE;
-					walkerCtx->destroy = EGL_TRUE;
-
-					_eglInternalCleanup();
-
-					return EGL_TRUE;
-				}
-
-				walkerCtx = walkerCtx->next;
-			}
-
-			g_localStorage.error = EGL_BAD_CONTEXT;
-
+			g_localStorage.error = EGL_NOT_INITIALIZED;
 			return EGL_FALSE;
 		}
 
-		walkerDpy = walkerDpy->next;
+		EGLContextImpl* walkerCtx = walkerDpy->rootCtx;
+
+		while (walkerCtx)
+		{
+			if ((EGLContext)walkerCtx == ctx)
+			{
+				if (!walkerCtx->initialized || walkerCtx->destroy)
+				{
+					g_localStorage.error = EGL_BAD_CONTEXT;
+					return EGL_FALSE;
+				}
+
+				walkerCtx->initialized = EGL_FALSE;
+				walkerCtx->destroy = EGL_TRUE;
+
+				_eglInternalCleanup();
+				return EGL_TRUE;
+			}
+
+			walkerCtx = walkerCtx->next;
+		}
+
+		g_localStorage.error = EGL_BAD_CONTEXT;
+		return EGL_FALSE;
 	}
 
 	g_localStorage.error = EGL_BAD_DISPLAY;
-
 	return EGL_FALSE;
 }
 
 EGLBoolean _eglDestroySurface(EGLDisplay dpy, EGLSurface surface)
 {
-	EGLDisplayImpl* walkerDpy = g_localStorage.rootDpy;
-
-	while (walkerDpy)
+	EGLDisplayImpl* walkerDpy = findStorageDisplay(dpy);
+	if (walkerDpy)
 	{
-		if ((EGLDisplay)walkerDpy == dpy)
+		if (!walkerDpy->initialized || walkerDpy->destroy)
 		{
-			if (!walkerDpy->initialized || walkerDpy->destroy)
-			{
-				g_localStorage.error = EGL_NOT_INITIALIZED;
-
-				return EGL_FALSE;
-			}
-
-			EGLSurfaceImpl* walkerSurface = walkerDpy->rootSurface;
-
-			while (walkerSurface)
-			{
-				if ((EGLSurface)walkerSurface == surface)
-				{
-					if (!walkerSurface->initialized || walkerSurface->destroy)
-					{
-						g_localStorage.error = EGL_BAD_SURFACE;
-
-						return EGL_FALSE;
-					}
-
-					walkerSurface->initialized = EGL_FALSE;
-					walkerSurface->destroy = EGL_TRUE;
-
-					__destroySurface(walkerSurface->win, &walkerSurface->nativeSurfaceContainer);
-
-					_eglInternalCleanup();
-
-					return EGL_TRUE;
-				}
-
-				walkerSurface = walkerSurface->next;
-			}
-
-			g_localStorage.error = EGL_BAD_SURFACE;
-
+			g_localStorage.error = EGL_NOT_INITIALIZED;
 			return EGL_FALSE;
 		}
 
-		walkerDpy = walkerDpy->next;
+		EGLSurfaceImpl* walkerSurface = walkerDpy->rootSurface;
+		while (walkerSurface)
+		{
+			if ((EGLSurface)walkerSurface == surface)
+			{
+				if (!walkerSurface->initialized || walkerSurface->destroy)
+				{
+					g_localStorage.error = EGL_BAD_SURFACE;
+					return EGL_FALSE;
+				}
+
+				walkerSurface->initialized = EGL_FALSE;
+				walkerSurface->destroy = EGL_TRUE;
+
+				__destroySurface(walkerSurface->win, &walkerSurface->nativeSurface);
+
+				_eglInternalCleanup();
+				return EGL_TRUE;
+			}
+
+			walkerSurface = walkerSurface->next;
+		}
+
+		g_localStorage.error = EGL_BAD_SURFACE;
+		return EGL_FALSE;
 	}
 
 	g_localStorage.error = EGL_BAD_DISPLAY;
-
 	return EGL_FALSE;
 }
 
 EGLBoolean _eglGetConfigAttrib(EGLDisplay dpy, EGLConfig config, EGLint attribute, EGLint *value)
 {
-	EGLDisplayImpl* walkerDpy = g_localStorage.rootDpy;
-
-	while (walkerDpy)
+	EGLDisplayImpl* walkerDpy = findStorageDisplay(dpy);
+	if (walkerDpy)
 	{
-		if ((EGLDisplay)walkerDpy == dpy)
+		if (!walkerDpy->initialized || walkerDpy->destroy)
 		{
-			if (!walkerDpy->initialized || walkerDpy->destroy)
-			{
-				g_localStorage.error = EGL_NOT_INITIALIZED;
-
-				return EGL_FALSE;
-			}
-
-			EGLConfigImpl* walkerConfig = walkerDpy->rootConfig;
-
-			while (walkerConfig)
-			{
-				if ((EGLConfig)walkerConfig == config)
-				{
-					break;
-				}
-
-				walkerConfig = walkerConfig->next;
-			}
-
-			if (!walkerConfig)
-			{
-				g_localStorage.error = EGL_BAD_CONFIG;
-
-				return EGL_FALSE;
-			}
-
-			switch (attribute)
-			{
-				case EGL_ALPHA_SIZE:
-				{
-					if (value)
-					{
-						*value = walkerConfig->alphaSize;
-					}
-				}
-				break;
-				case EGL_ALPHA_MASK_SIZE:
-				{
-					if (value)
-					{
-						*value = walkerConfig->alphaMaskSize;
-					}
-				}
-				break;
-				case EGL_BIND_TO_TEXTURE_RGB:
-				{
-					if (value)
-					{
-						*value = walkerConfig->bindToTextureRGB;
-					}
-				}
-				break;
-				case EGL_BIND_TO_TEXTURE_RGBA:
-				{
-					if (value)
-					{
-						*value = walkerConfig->bindToTextureRGBA;
-					}
-				}
-				break;
-				case EGL_BLUE_SIZE:
-				{
-					if (value)
-					{
-						*value = walkerConfig->blueSize;
-					}
-				}
-				break;
-				case EGL_BUFFER_SIZE:
-				{
-					if (value)
-					{
-						*value = walkerConfig->bufferSize;
-					}
-				}
-				break;
-				case EGL_COLOR_BUFFER_TYPE:
-				{
-					if (value)
-					{
-						*value = walkerConfig->colorBufferType;
-					}
-				}
-				break;
-				case EGL_CONFIG_CAVEAT:
-				{
-					if (value)
-					{
-						*value = walkerConfig->configCaveat;
-					}
-				}
-				break;
-				case EGL_CONFIG_ID:
-				{
-					if (value)
-					{
-						*value = walkerConfig->configId;
-					}
-				}
-				break;
-				case EGL_CONFORMANT:
-				{
-					if (value)
-					{
-						*value = walkerConfig->conformant;
-					}
-				}
-				break;
-				case EGL_DEPTH_SIZE:
-				{
-					if (value)
-					{
-						*value = walkerConfig->depthSize;
-					}
-				}
-				break;
-				case EGL_GREEN_SIZE:
-				{
-					if (value)
-					{
-						*value = walkerConfig->greenSize;
-					}
-				}
-				break;
-				case EGL_LEVEL:
-				{
-					if (value)
-					{
-						*value = walkerConfig->level;
-					}
-				}
-				break;
-				case EGL_LUMINANCE_SIZE:
-				{
-					if (value)
-					{
-						*value = walkerConfig->luminanceSize;
-					}
-				}
-				break;
-				case EGL_MAX_PBUFFER_WIDTH:
-				{
-					if (value)
-					{
-						*value = walkerConfig->maxPBufferWidth;
-					}
-				}
-				break;
-				case EGL_MAX_PBUFFER_HEIGHT:
-				{
-					if (value)
-					{
-						*value = walkerConfig->maxPBufferHeight;
-					}
-				}
-				break;
-				case EGL_MAX_PBUFFER_PIXELS:
-				{
-					if (value)
-					{
-						*value = walkerConfig->maxPBufferPixels;
-					}
-				}
-				break;
-				case EGL_MAX_SWAP_INTERVAL:
-				{
-					if (value)
-					{
-						*value = walkerConfig->maxSwapInterval;
-					}
-				}
-				break;
-				case EGL_MIN_SWAP_INTERVAL:
-				{
-					if (value)
-					{
-						*value = walkerConfig->minSwapInterval;
-					}
-				}
-				break;
-				case EGL_NATIVE_RENDERABLE:
-				{
-					if (value)
-					{
-						*value = walkerConfig->nativeRenderable;
-					}
-				}
-				break;
-				case EGL_NATIVE_VISUAL_ID:
-				{
-					if (value)
-					{
-						*value = walkerConfig->nativeVisualId;
-					}
-				}
-				break;
-				case EGL_NATIVE_VISUAL_TYPE:
-				{
-					if (value)
-					{
-						*value = walkerConfig->nativeVisualType;
-					}
-				}
-				break;
-				case EGL_RED_SIZE:
-				{
-					if (value)
-					{
-						*value = walkerConfig->redSize;
-					}
-				}
-				break;
-				case EGL_RENDERABLE_TYPE:
-				{
-					if (value)
-					{
-						*value = walkerConfig->renderableType;
-					}
-				}
-				break;
-				case EGL_SAMPLE_BUFFERS:
-				{
-					if (value)
-					{
-						*value = walkerConfig->sampleBuffers;
-					}
-				}
-				break;
-				case EGL_SAMPLES:
-				{
-					if (value)
-					{
-						*value = walkerConfig->samples;
-					}
-				}
-				break;
-				case EGL_STENCIL_SIZE:
-				{
-					if (value)
-					{
-						*value = walkerConfig->stencilSize;
-					}
-				}
-				break;
-				case EGL_SURFACE_TYPE:
-				{
-					if (value)
-					{
-						*value = walkerConfig->surfaceType;
-					}
-				}
-				break;
-				case EGL_TRANSPARENT_TYPE:
-				{
-					if (value)
-					{
-						*value = walkerConfig->transparentType;
-					}
-				}
-				break;
-				case EGL_TRANSPARENT_RED_VALUE:
-				{
-					if (value)
-					{
-						*value = walkerConfig->transparentRedValue;
-					}
-				}
-				break;
-				case EGL_TRANSPARENT_GREEN_VALUE:
-				{
-					if (value)
-					{
-						*value = walkerConfig->transparentGreenValue;
-					}
-				}
-				break;
-				case EGL_TRANSPARENT_BLUE_VALUE:
-				{
-					if (value)
-					{
-						*value = walkerConfig->transparentBlueValue;
-					}
-				}
-				break;
-				default:
-				{
-					g_localStorage.error = EGL_BAD_ATTRIBUTE;
-
-					return EGL_FALSE;
-				}
-				break;
-			}
-
-			return EGL_TRUE;
+			g_localStorage.error = EGL_NOT_INITIALIZED;
+			return EGL_FALSE;
 		}
 
-		walkerDpy = walkerDpy->next;
+		EGLConfigImpl* walkerConfig = walkerDpy->rootConfig;
+		while (walkerConfig)
+		{
+			if ((EGLConfig)walkerConfig == config)
+				break;
+
+			walkerConfig = walkerConfig->next;
+		}
+
+		if (!walkerConfig)
+		{
+			g_localStorage.error = EGL_BAD_CONFIG;
+			return EGL_FALSE;
+		}
+
+		switch (attribute)
+		{
+		case EGL_ALPHA_SIZE:
+		{
+			if (value)
+			{
+				*value = walkerConfig->alphaSize;
+			}
+		}
+		break;
+		case EGL_ALPHA_MASK_SIZE:
+		{
+			if (value)
+			{
+				*value = walkerConfig->alphaMaskSize;
+			}
+		}
+		break;
+		case EGL_BIND_TO_TEXTURE_RGB:
+		{
+			if (value)
+			{
+				*value = walkerConfig->bindToTextureRGB;
+			}
+		}
+		break;
+		case EGL_BIND_TO_TEXTURE_RGBA:
+		{
+			if (value)
+			{
+				*value = walkerConfig->bindToTextureRGBA;
+			}
+		}
+		break;
+		case EGL_BLUE_SIZE:
+		{
+			if (value)
+			{
+				*value = walkerConfig->blueSize;
+			}
+		}
+		break;
+		case EGL_BUFFER_SIZE:
+		{
+			if (value)
+			{
+				*value = walkerConfig->bufferSize;
+			}
+		}
+		break;
+		case EGL_COLOR_BUFFER_TYPE:
+		{
+			if (value)
+			{
+				*value = walkerConfig->colorBufferType;
+			}
+		}
+		break;
+		case EGL_CONFIG_CAVEAT:
+		{
+			if (value)
+			{
+				*value = walkerConfig->configCaveat;
+			}
+		}
+		break;
+		case EGL_CONFIG_ID:
+		{
+			if (value)
+			{
+				*value = walkerConfig->configId;
+			}
+		}
+		break;
+		case EGL_CONFORMANT:
+		{
+			if (value)
+			{
+				*value = walkerConfig->conformant;
+			}
+		}
+		break;
+		case EGL_DEPTH_SIZE:
+		{
+			if (value)
+			{
+				*value = walkerConfig->depthSize;
+			}
+		}
+		break;
+		case EGL_GREEN_SIZE:
+		{
+			if (value)
+			{
+				*value = walkerConfig->greenSize;
+			}
+		}
+		break;
+		case EGL_LEVEL:
+		{
+			if (value)
+			{
+				*value = walkerConfig->level;
+			}
+		}
+		break;
+		case EGL_LUMINANCE_SIZE:
+		{
+			if (value)
+			{
+				*value = walkerConfig->luminanceSize;
+			}
+		}
+		break;
+		case EGL_MAX_PBUFFER_WIDTH:
+		{
+			if (value)
+			{
+				*value = walkerConfig->maxPBufferWidth;
+			}
+		}
+		break;
+		case EGL_MAX_PBUFFER_HEIGHT:
+		{
+			if (value)
+			{
+				*value = walkerConfig->maxPBufferHeight;
+			}
+		}
+		break;
+		case EGL_MAX_PBUFFER_PIXELS:
+		{
+			if (value)
+			{
+				*value = walkerConfig->maxPBufferPixels;
+			}
+		}
+		break;
+		case EGL_MAX_SWAP_INTERVAL:
+		{
+			if (value)
+			{
+				*value = walkerConfig->maxSwapInterval;
+			}
+		}
+		break;
+		case EGL_MIN_SWAP_INTERVAL:
+		{
+			if (value)
+			{
+				*value = walkerConfig->minSwapInterval;
+			}
+		}
+		break;
+		case EGL_NATIVE_RENDERABLE:
+		{
+			if (value)
+			{
+				*value = walkerConfig->nativeRenderable;
+			}
+		}
+		break;
+		case EGL_NATIVE_VISUAL_ID:
+		{
+			if (value)
+			{
+				*value = walkerConfig->nativeVisualId;
+			}
+		}
+		break;
+		case EGL_NATIVE_VISUAL_TYPE:
+		{
+			if (value)
+			{
+				*value = walkerConfig->nativeVisualType;
+			}
+		}
+		break;
+		case EGL_RED_SIZE:
+		{
+			if (value)
+			{
+				*value = walkerConfig->redSize;
+			}
+		}
+		break;
+		case EGL_RENDERABLE_TYPE:
+		{
+			if (value)
+			{
+				*value = walkerConfig->renderableType;
+			}
+		}
+		break;
+		case EGL_SAMPLE_BUFFERS:
+		{
+			if (value)
+			{
+				*value = walkerConfig->sampleBuffers;
+			}
+		}
+		break;
+		case EGL_SAMPLES:
+		{
+			if (value)
+			{
+				*value = walkerConfig->samples;
+			}
+		}
+		break;
+		case EGL_STENCIL_SIZE:
+		{
+			if (value)
+			{
+				*value = walkerConfig->stencilSize;
+			}
+		}
+		break;
+		case EGL_SURFACE_TYPE:
+		{
+			if (value)
+			{
+				*value = walkerConfig->surfaceType;
+			}
+		}
+		break;
+		case EGL_TRANSPARENT_TYPE:
+		{
+			if (value)
+			{
+				*value = walkerConfig->transparentType;
+			}
+		}
+		break;
+		case EGL_TRANSPARENT_RED_VALUE:
+		{
+			if (value)
+			{
+				*value = walkerConfig->transparentRedValue;
+			}
+		}
+		break;
+		case EGL_TRANSPARENT_GREEN_VALUE:
+		{
+			if (value)
+			{
+				*value = walkerConfig->transparentGreenValue;
+			}
+		}
+		break;
+		case EGL_TRANSPARENT_BLUE_VALUE:
+		{
+			if (value)
+			{
+				*value = walkerConfig->transparentBlueValue;
+			}
+		}
+		break;
+		default:
+		{
+			g_localStorage.error = EGL_BAD_ATTRIBUTE;
+			return EGL_FALSE;
+		}
+		break;
+		}
+
+		return EGL_TRUE;
 	}
 
 	g_localStorage.error = EGL_BAD_DISPLAY;
-
 	return EGL_FALSE;
 }
 
@@ -1551,78 +1486,58 @@ EGLBoolean _eglGetConfigs(EGLDisplay dpy, EGLConfig *configs, EGLint config_size
 	if (!configs)
 	{
 		g_localStorage.error = EGL_BAD_PARAMETER;
-
 		return EGL_FALSE;
 	}
 
 	if (config_size == 0)
 	{
 		g_localStorage.error = EGL_BAD_PARAMETER;
-
 		return EGL_FALSE;
 	}
 
 	if (!num_config)
 	{
 		g_localStorage.error = EGL_BAD_PARAMETER;
-
 		return EGL_FALSE;
 	}
 
-	EGLDisplayImpl* walkerDpy = g_localStorage.rootDpy;
-
-	while (walkerDpy)
+	EGLDisplayImpl* walkerDpy = findStorageDisplay(dpy);
+	if (walkerDpy)
 	{
-		if ((EGLDisplay)walkerDpy == dpy)
+		if (!walkerDpy->initialized || walkerDpy->destroy)
 		{
-			if (!walkerDpy->initialized || walkerDpy->destroy)
-			{
-				g_localStorage.error = EGL_NOT_INITIALIZED;
-
-				return EGL_FALSE;
-			}
-
-			EGLConfigImpl* walkerConfig = walkerDpy->rootConfig;
-
-			EGLint configIndex = 0;
-
-			while (walkerConfig && configIndex < config_size)
-			{
-				configs[configIndex] = walkerConfig;
-
-				walkerConfig = walkerConfig->next;
-
-				configIndex++;
-			}
-
-			*num_config = configIndex;
-
-			return EGL_TRUE;
+			g_localStorage.error = EGL_NOT_INITIALIZED;
+			return EGL_FALSE;
 		}
 
-		walkerDpy = walkerDpy->next;
+		EGLConfigImpl* walkerConfig = walkerDpy->rootConfig;
+		EGLint configIndex = 0;
+
+		while (walkerConfig && configIndex < config_size)
+		{
+			configs[configIndex] = walkerConfig;
+			walkerConfig = walkerConfig->next;
+			configIndex++;
+		}
+
+		*num_config = configIndex;
+		return EGL_TRUE;
 	}
 
 	g_localStorage.error = EGL_BAD_DISPLAY;
-
 	return EGL_FALSE;
 }
 
 EGLDisplay _eglGetCurrentDisplay(void)
 {
 	if (g_localStorage.currentCtx == EGL_NO_CONTEXT)
-	{
 		return EGL_NO_DISPLAY;
-	}
 
 	EGLDisplayImpl* walkerDpy = g_localStorage.rootDpy;
-
 	while (walkerDpy)
 	{
 		if (walkerDpy->currentCtx == g_localStorage.currentCtx)
-		{
 			return (EGLDisplay)walkerDpy;
-		}
 
 		walkerDpy = walkerDpy->next;
 	}
@@ -1633,12 +1548,9 @@ EGLDisplay _eglGetCurrentDisplay(void)
 EGLSurface _eglGetCurrentSurface(EGLint readdraw)
 {
 	if (g_localStorage.currentCtx == EGL_NO_CONTEXT)
-	{
 		return EGL_NO_SURFACE;
-	}
 
 	EGLDisplayImpl* walkerDpy = g_localStorage.rootDpy;
-
 	while (walkerDpy)
 	{
 		if (walkerDpy->currentCtx == g_localStorage.currentCtx)
@@ -1671,23 +1583,18 @@ EGLDisplay _eglGetDisplay(EGLNativeDisplayType display_id)
 	//
 
 	EGLDisplayImpl* walkerDpy = g_localStorage.rootDpy;
-
 	while (walkerDpy)
 	{
 		if (walkerDpy->display_id == display_id)
-		{
 			return (EGLDisplay)walkerDpy;
-		}
 
 		walkerDpy = walkerDpy->next;
 	}
 
+	// Create new display
 	EGLDisplayImpl* newDpy = (EGLDisplayImpl*)malloc(sizeof(EGLDisplayImpl));
-
 	if (!newDpy)
-	{
 		return EGL_NO_DISPLAY;
-	}
 
 	newDpy->initialized = EGL_FALSE;
 	newDpy->destroy = EGL_FALSE;
@@ -1701,16 +1608,13 @@ EGLDisplay _eglGetDisplay(EGLNativeDisplayType display_id)
 	newDpy->next = g_localStorage.rootDpy;
 
 	g_localStorage.rootDpy = newDpy;
-
 	return newDpy;
 }
 
 EGLint _eglGetError(void)
 {
 	EGLint currentError = g_localStorage.error;
-
 	g_localStorage.error = EGL_SUCCESS;
-
 	return currentError;
 }
 
@@ -1721,573 +1625,476 @@ __eglMustCastToProperFunctionPointerType _eglGetProcAddress(const char *procname
 
 EGLBoolean _eglInitialize(EGLDisplay dpy, EGLint *major, EGLint *minor)
 {
-	EGLDisplayImpl* walkerDpy = g_localStorage.rootDpy;
-
-	while (walkerDpy)
+	EGLDisplayImpl* walkerDpy = findStorageDisplay(dpy);
+	if (walkerDpy)
 	{
-		if ((EGLDisplay)walkerDpy == dpy)
+		if (walkerDpy->initialized || walkerDpy->destroy)
 		{
-			if (walkerDpy->initialized || walkerDpy->destroy)
-			{
-				g_localStorage.error = EGL_NOT_INITIALIZED;
-
-				return EGL_FALSE;
-			}
-
-			if (!__initialize(walkerDpy, &g_localStorage.dummy, &g_localStorage.error))
-			{
-				return EGL_FALSE;
-			}
-
-			walkerDpy->initialized = EGL_TRUE;
-
-
-			//
-
-			if (major)
-			{
-				*major = 1;
-			}
-
-			if (minor)
-			{
-				*minor = 5;
-			}
-
-			return EGL_TRUE;
+			g_localStorage.error = EGL_NOT_INITIALIZED;
+			return EGL_FALSE;
 		}
 
-		walkerDpy = walkerDpy->next;
+		if (!__initialize(walkerDpy, &g_localStorage.dummy, &g_localStorage.error))
+		{
+			return EGL_FALSE;
+		}
+
+		walkerDpy->initialized = EGL_TRUE;
+
+		//
+		if (major)
+			*major = 1;
+
+		if (minor)
+			*minor = 5;
+
+		return EGL_TRUE;
 	}
 
 	g_localStorage.error = EGL_BAD_DISPLAY;
-
 	return EGL_FALSE;
 }
 
 EGLBoolean _eglMakeCurrent(EGLDisplay dpy, EGLSurface draw, EGLSurface read, EGLContext ctx)
 {
-	EGLDisplayImpl* walkerDpy = g_localStorage.rootDpy;
-
 	if ((ctx == EGL_NO_CONTEXT && (draw != EGL_NO_SURFACE || read != EGL_NO_SURFACE)) || (ctx != EGL_NO_CONTEXT && (draw == EGL_NO_SURFACE || read == EGL_NO_SURFACE)))
 	{
 		g_localStorage.error = EGL_BAD_MATCH;
-
 		return EGL_FALSE;
 	}
 
-	while (walkerDpy)
+	EGLDisplayImpl* walkerDpy = findStorageDisplay(dpy);
+	if (walkerDpy)
 	{
-		if ((EGLDisplay)walkerDpy == dpy)
+		if (!walkerDpy->initialized || walkerDpy->destroy)
 		{
-			if (!walkerDpy->initialized || walkerDpy->destroy)
-			{
-				g_localStorage.error = EGL_NOT_INITIALIZED;
-
-				return EGL_FALSE;
-			}
-
-			EGLSurfaceImpl* currentDraw = EGL_NO_SURFACE;
-			EGLSurfaceImpl* currentRead = EGL_NO_SURFACE;
-			EGLContextImpl* currentCtx = EGL_NO_CONTEXT;
-
-			NativeSurfaceContainer* nativeSurfaceContainer = 0;
-			NativeContextContainer* nativeContextContainer = 0;
-
-			EGLBoolean result;
-
-			if (draw != EGL_NO_SURFACE)
-			{
-				EGLSurfaceImpl* walkerSurface = walkerDpy->rootSurface;
-
-				while (walkerSurface)
-				{
-					if ((EGLSurface)walkerSurface == draw)
-					{
-						if (!walkerSurface->initialized || walkerSurface->destroy)
-						{
-							g_localStorage.error = EGL_BAD_NATIVE_WINDOW;
-
-							return EGL_FALSE;
-						}
-
-						currentDraw = walkerSurface;
-
-						break;
-					}
-
-					walkerSurface = walkerSurface->next;
-				}
-
-				if (!currentDraw)
-				{
-					g_localStorage.error = EGL_BAD_SURFACE;
-
-					return EGL_FALSE;
-				}
-			}
-
-			if (read != EGL_NO_SURFACE)
-			{
-				EGLSurfaceImpl* walkerSurface = walkerDpy->rootSurface;
-
-				while (walkerSurface)
-				{
-					if ((EGLSurface)walkerSurface == read)
-					{
-						if (!walkerSurface->initialized || walkerSurface->destroy)
-						{
-							g_localStorage.error = EGL_BAD_NATIVE_WINDOW;
-
-							return EGL_FALSE;
-						}
-
-						currentRead = walkerSurface;
-
-						break;
-					}
-
-					walkerSurface = walkerSurface->next;
-				}
-
-				if (!currentRead)
-				{
-					g_localStorage.error = EGL_BAD_SURFACE;
-
-					return EGL_FALSE;
-				}
-			}
-
-			if (ctx != EGL_NO_CONTEXT)
-			{
-				EGLContextImpl* walkerCtx = walkerDpy->rootCtx;
-
-				while (walkerCtx)
-				{
-					if ((EGLContext)walkerCtx == ctx)
-					{
-						if (!walkerCtx->initialized || walkerCtx->destroy)
-						{
-							g_localStorage.error = EGL_BAD_CONTEXT;
-
-							return EGL_FALSE;
-						}
-
-						currentCtx = walkerCtx;
-
-						break;
-					}
-
-					walkerCtx = walkerCtx->next;
-				}
-
-				if (!currentCtx)
-				{
-					g_localStorage.error = EGL_BAD_CONTEXT;
-
-					return EGL_FALSE;
-				}
-			}
-
-			if (currentDraw != EGL_NO_SURFACE)
-			{
-				nativeSurfaceContainer = &currentDraw->nativeSurfaceContainer;
-			}
-
-			if (currentCtx != EGL_NO_CONTEXT)
-			{
-				EGLContextListImpl* ctxList = currentCtx->rootCtxList;
-
-				while (ctxList)
-				{
-					if (ctxList->surface == currentDraw)
-					{
-						break;
-					}
-
-					ctxList = ctxList->next;
-				}
-
-				if (!ctxList)
-				{
-					ctxList = (EGLContextListImpl*)malloc(sizeof(EGLContextListImpl));
-
-					if (!ctxList)
-					{
-						return EGL_FALSE;
-					}
-
-					// Gather shared context, if one exists.
-					EGLContextListImpl* sharedCtxList = 0;
-					if (currentCtx->sharedCtx)
-					{
-						EGLContextImpl* sharedWalkerCtx = currentCtx->sharedCtx;
-
-						EGLContextImpl* beforeSharedWalkerCtx = 0;
-
-						while (sharedWalkerCtx)
-						{
-							// Check, if already created.
-							if (sharedWalkerCtx->rootCtxList)
-							{
-								sharedCtxList = sharedWalkerCtx->rootCtxList;
-
-								break;
-							}
-
-							beforeSharedWalkerCtx = sharedWalkerCtx;
-							sharedWalkerCtx = sharedWalkerCtx->sharedCtx;
-
-							// No created shared context found.
-							if (!sharedWalkerCtx)
-							{
-								sharedCtxList = (EGLContextListImpl*)malloc(sizeof(EGLContextListImpl));
-
-								if (!sharedCtxList)
-								{
-									free(ctxList);
-
-									return EGL_FALSE;
-								}
-
-								result = __createContext(&sharedCtxList->nativeContextContainer, walkerDpy, &currentDraw->nativeSurfaceContainer, 0, beforeSharedWalkerCtx->attribList);
-
-								if (!result)
-								{
-									free(sharedCtxList);
-
-									free(ctxList);
-
-									return EGL_FALSE;
-								}
-
-								sharedCtxList->surface = currentDraw;
-
-								sharedCtxList->next = beforeSharedWalkerCtx->rootCtxList;
-								beforeSharedWalkerCtx->rootCtxList = sharedCtxList;
-							}
-						}
-					}
-					else
-					{
-						// Use own context as shared context, if one exits.
-
-						sharedCtxList = currentCtx->rootCtxList;
-					}
-
-					result = __createContext(&ctxList->nativeContextContainer, walkerDpy, &currentDraw->nativeSurfaceContainer, sharedCtxList ? &sharedCtxList->nativeContextContainer : 0, currentCtx->attribList);
-
-					if (!result)
-					{
-						free(ctxList);
-
-						return EGL_FALSE;
-					}
-
-					ctxList->surface = currentDraw;
-
-					ctxList->next = currentCtx->rootCtxList;
-					currentCtx->rootCtxList = ctxList;
-				}
-
-				nativeContextContainer = &ctxList->nativeContextContainer;
-			}
-
-			result = __makeCurrent(walkerDpy, nativeSurfaceContainer, nativeContextContainer);
-
-			if (!result)
-			{
-				g_localStorage.error = EGL_BAD_MATCH;
-
-				return EGL_FALSE;
-			}
-
-			walkerDpy->currentDraw = currentDraw;
-			walkerDpy->currentRead = currentRead;
-			walkerDpy->currentCtx = currentCtx;
-
-			g_localStorage.currentCtx = currentCtx;
-
-			_eglInternalCleanup();
-
-			return EGL_TRUE;
+			g_localStorage.error = EGL_NOT_INITIALIZED;
+			return EGL_FALSE;
 		}
 
-		walkerDpy = walkerDpy->next;
-	}
+		EGLSurfaceImpl* currentDraw = EGL_NO_SURFACE;
+		EGLSurfaceImpl* currentRead = EGL_NO_SURFACE;
+		EGLContextImpl* currentCtx = EGL_NO_CONTEXT;
 
-	g_localStorage.error = EGL_BAD_DISPLAY;
+		NativeSurface* nativeSurface = 0;
+		NativeContext* nativeContext = 0;
 
-	return EGL_FALSE;
-}
+		EGLBoolean result;
 
-EGLBoolean _eglQueryContext (EGLDisplay dpy, EGLContext ctx, EGLint attribute, EGLint *value)
-{
-	EGLDisplayImpl* walkerDpy = g_localStorage.rootDpy;
-
-	while (walkerDpy)
-	{
-		if ((EGLDisplay)walkerDpy == dpy)
+		if (draw != EGL_NO_SURFACE)
 		{
-			if (!walkerDpy->initialized || walkerDpy->destroy)
-			{
-				g_localStorage.error = EGL_NOT_INITIALIZED;
+			EGLSurfaceImpl* walkerSurface = walkerDpy->rootSurface;
 
-				return EGL_FALSE;
+			while (walkerSurface)
+			{
+				if ((EGLSurface)walkerSurface == draw)
+				{
+					if (!walkerSurface->initialized || walkerSurface->destroy)
+					{
+						g_localStorage.error = EGL_BAD_NATIVE_WINDOW;
+						return EGL_FALSE;
+					}
+
+					currentDraw = walkerSurface;
+					break;
+				}
+
+				walkerSurface = walkerSurface->next;
 			}
 
-			EGLContextImpl* walkerCtx = walkerDpy->rootCtx;
+			if (!currentDraw)
+			{
+				g_localStorage.error = EGL_BAD_SURFACE;
+				return EGL_FALSE;
+			}
+		}
 
+		if (read != EGL_NO_SURFACE)
+		{
+			EGLSurfaceImpl* walkerSurface = walkerDpy->rootSurface;
+			while (walkerSurface)
+			{
+				if ((EGLSurface)walkerSurface == read)
+				{
+					if (!walkerSurface->initialized || walkerSurface->destroy)
+					{
+						g_localStorage.error = EGL_BAD_NATIVE_WINDOW;
+						return EGL_FALSE;
+					}
+
+					currentRead = walkerSurface;
+					break;
+				}
+
+				walkerSurface = walkerSurface->next;
+			}
+
+			if (!currentRead)
+			{
+				g_localStorage.error = EGL_BAD_SURFACE;
+				return EGL_FALSE;
+			}
+		}
+
+		if (ctx != EGL_NO_CONTEXT)
+		{
+			EGLContextImpl* walkerCtx = walkerDpy->rootCtx;
 			while (walkerCtx)
 			{
 				if ((EGLContext)walkerCtx == ctx)
 				{
 					if (!walkerCtx->initialized || walkerCtx->destroy)
 					{
+						g_localStorage.error = EGL_BAD_CONTEXT;
 						return EGL_FALSE;
 					}
 
-					switch (attribute)
-					{
-						case EGL_CONFIG_ID:
-						{
-							if (value)
-							{
-								*value = walkerCtx->configId;
-							}
-
-							return EGL_TRUE;
-						}
-						break;
-						case EGL_CONTEXT_CLIENT_TYPE:
-						{
-							if (value)
-							{
-								*value = EGL_OPENGL_API;
-							}
-
-							return EGL_TRUE;
-						}
-						break;
-						case EGL_CONTEXT_CLIENT_VERSION:
-						{
-							// Regarding the specification, it only makes sense for OpenGL ES.
-
-							return EGL_FALSE;
-						}
-						break;
-						case EGL_RENDER_BUFFER:
-						{
-							if (walkerDpy->currentCtx == walkerCtx)
-							{
-								EGLSurfaceImpl* currentSurface = walkerDpy->currentDraw ? walkerDpy->currentDraw : walkerDpy->currentRead;
-
-								if (currentSurface)
-								{
-									if (currentSurface->drawToWindow)
-									{
-										if (value)
-										{
-											*value = currentSurface->doubleBuffer ? EGL_BACK_BUFFER : EGL_SINGLE_BUFFER;
-										}
-
-										return EGL_TRUE;
-									}
-									else if (currentSurface->drawToPixmap)
-									{
-										if (value)
-										{
-											*value = EGL_SINGLE_BUFFER;
-										}
-
-										return EGL_TRUE;
-									}
-									else if (currentSurface->drawToPBuffer)
-									{
-										if (value)
-										{
-											*value = EGL_BACK_BUFFER;
-										}
-
-										return EGL_TRUE;
-									}
-								}
-
-								if (value)
-								{
-									*value = EGL_NONE;
-								}
-
-								return EGL_FALSE;
-							}
-							else
-							{
-								if (value)
-								{
-									*value = EGL_NONE;
-								}
-
-								return EGL_FALSE;
-							}
-						}
-						break;
-					}
-
-					g_localStorage.error = EGL_BAD_PARAMETER;
-
-					return EGL_FALSE;
+					currentCtx = walkerCtx;
+					break;
 				}
 
 				walkerCtx = walkerCtx->next;
 			}
 
-			g_localStorage.error = EGL_BAD_CONTEXT;
+			if (!currentCtx)
+			{
+				g_localStorage.error = EGL_BAD_CONTEXT;
+				return EGL_FALSE;
+			}
+		}
 
+		if (currentDraw != EGL_NO_SURFACE)
+			nativeSurface = &currentDraw->nativeSurface;
+
+		if (currentCtx != EGL_NO_CONTEXT)
+		{
+			EGLContextListImpl* ctxList = currentCtx->rootCtxList;
+
+			while (ctxList)
+			{
+				if (ctxList->surface == currentDraw)
+					break;
+
+				ctxList = ctxList->next;
+			}
+
+			if (!ctxList)
+			{
+				ctxList = (EGLContextListImpl*)malloc(sizeof(EGLContextListImpl));
+
+				if (!ctxList)
+					return EGL_FALSE;
+
+				// Gather shared context, if one exists.
+				EGLContextListImpl* sharedCtxList = 0;
+				if (currentCtx->sharedCtx)
+				{
+					EGLContextImpl* sharedWalkerCtx = currentCtx->sharedCtx;
+					EGLContextImpl* beforeSharedWalkerCtx = 0;
+					while (sharedWalkerCtx)
+					{
+						// Check, if already created.
+						if (sharedWalkerCtx->rootCtxList)
+						{
+							sharedCtxList = sharedWalkerCtx->rootCtxList;
+							break;
+						}
+
+						beforeSharedWalkerCtx = sharedWalkerCtx;
+						sharedWalkerCtx = sharedWalkerCtx->sharedCtx;
+
+						// No created shared context found.
+						if (!sharedWalkerCtx)
+						{
+							sharedCtxList = (EGLContextListImpl*)malloc(sizeof(EGLContextListImpl));
+							if (!sharedCtxList)
+							{
+								free(ctxList);
+								return EGL_FALSE;
+							}
+
+							result = __createContext(&sharedCtxList->nativeContext, walkerDpy, &currentDraw->nativeSurface, 0, beforeSharedWalkerCtx->attribList);
+
+							if (!result)
+							{
+								free(sharedCtxList);
+								free(ctxList);
+								return EGL_FALSE;
+							}
+
+							sharedCtxList->surface = currentDraw;
+
+							sharedCtxList->next = beforeSharedWalkerCtx->rootCtxList;
+							beforeSharedWalkerCtx->rootCtxList = sharedCtxList;
+						}
+					}
+				}
+				else
+				{
+					// Use own context as shared context, if one exits.
+					sharedCtxList = currentCtx->rootCtxList;
+				}
+
+				result = __createContext(&ctxList->nativeContext, walkerDpy, &currentDraw->nativeSurface, sharedCtxList ? &sharedCtxList->nativeContext : 0, currentCtx->attribList);
+
+				if (!result)
+				{
+					free(ctxList);
+					return EGL_FALSE;
+				}
+
+				ctxList->surface = currentDraw;
+				ctxList->next = currentCtx->rootCtxList;
+				currentCtx->rootCtxList = ctxList;
+			}
+
+			nativeContext = &ctxList->nativeContext;
+		}
+
+		result = __makeCurrent(walkerDpy, nativeSurface, nativeContext);
+
+		if (!result)
+		{
+			g_localStorage.error = EGL_BAD_MATCH;
 			return EGL_FALSE;
 		}
 
-		walkerDpy = walkerDpy->next;
+		walkerDpy->currentDraw = currentDraw;
+		walkerDpy->currentRead = currentRead;
+		walkerDpy->currentCtx = currentCtx;
+
+		g_localStorage.currentCtx = currentCtx;
+		_eglInternalCleanup();
+		return EGL_TRUE;
 	}
 
 	g_localStorage.error = EGL_BAD_DISPLAY;
+	return EGL_FALSE;
+}
 
+EGLBoolean _eglQueryContext(EGLDisplay dpy, EGLContext ctx, EGLint attribute, EGLint *value)
+{
+	EGLDisplayImpl* walkerDpy = findStorageDisplay(dpy);
+	if (walkerDpy)
+	{
+		if (!walkerDpy->initialized || walkerDpy->destroy)
+		{
+			g_localStorage.error = EGL_NOT_INITIALIZED;
+			return EGL_FALSE;
+		}
+
+		EGLContextImpl * walkerCtx = walkerDpy->rootCtx;
+		while (walkerCtx)
+		{
+			if ((EGLContext)walkerCtx == ctx)
+			{
+				if (!walkerCtx->initialized || walkerCtx->destroy)
+				{
+					return EGL_FALSE;
+				}
+
+				switch (attribute)
+				{
+				case EGL_CONFIG_ID:
+				{
+					if (value)
+						*value = walkerCtx->configId;
+
+					return EGL_TRUE;
+				}
+				break;
+				case EGL_CONTEXT_CLIENT_TYPE:
+				{
+					if (value)
+						*value = EGL_OPENGL_API;
+
+					return EGL_TRUE;
+				}
+				break;
+				case EGL_CONTEXT_CLIENT_VERSION:
+				{
+					// Regarding the specification, it only makes sense for OpenGL ES.
+					return EGL_FALSE;
+				}
+				break;
+				case EGL_RENDER_BUFFER:
+				{
+					if (walkerDpy->currentCtx == walkerCtx)
+					{
+						EGLSurfaceImpl * currentSurface = walkerDpy->currentDraw ? walkerDpy->currentDraw : walkerDpy->currentRead;
+
+						if (currentSurface)
+						{
+							if (currentSurface->drawToWindow)
+							{
+								if (value)
+									*value = currentSurface->doubleBuffer ? EGL_BACK_BUFFER : EGL_SINGLE_BUFFER;
+
+								return EGL_TRUE;
+							}
+							else if (currentSurface->drawToPixmap)
+							{
+								if (value)
+									*value = EGL_SINGLE_BUFFER;
+
+								return EGL_TRUE;
+							}
+							else if (currentSurface->drawToPBuffer)
+							{
+								if (value)
+									*value = EGL_BACK_BUFFER;
+
+								return EGL_TRUE;
+							}
+						}
+
+						if (value)
+							*value = EGL_NONE;
+
+						return EGL_FALSE;
+					}
+					else
+					{
+						if (value)
+							*value = EGL_NONE;
+
+						return EGL_FALSE;
+					}
+				}
+				break;
+				}
+
+				g_localStorage.error = EGL_BAD_PARAMETER;
+				return EGL_FALSE;
+			}
+
+			walkerCtx = walkerCtx->next;
+		}
+
+		g_localStorage.error = EGL_BAD_CONTEXT;
+		return EGL_FALSE;
+	}
+
+	g_localStorage.error = EGL_BAD_DISPLAY;
 	return EGL_FALSE;
 }
 
 const char *_eglQueryString(EGLDisplay dpy, EGLint name)
 {
-	EGLDisplayImpl* walkerDpy = g_localStorage.rootDpy;
-
-	while (walkerDpy)
+	EGLDisplayImpl* walkerDpy = findStorageDisplay(dpy);
+	if (walkerDpy)
 	{
-		if ((EGLDisplay)walkerDpy == dpy)
+		if (!walkerDpy->initialized || walkerDpy->destroy)
 		{
-			if (!walkerDpy->initialized || walkerDpy->destroy)
-			{
-				g_localStorage.error = EGL_NOT_INITIALIZED;
-
-				return 0;
-			}
-
-			switch (name)
-			{
-				case EGL_CLIENT_APIS:
-				{
-					return "EGL_OPENGL_API";
-				}
-				break;
-				case EGL_VENDOR:
-				{
-					return _EGL_VENDOR;
-				}
-				break;
-				case EGL_VERSION:
-				{
-					return _EGL_VERSION;
-				}
-				break;
-				case EGL_EXTENSIONS:
-				{
-					return "";
-				}
-				break;
-			}
-
-			g_localStorage.error = EGL_BAD_PARAMETER;
-
+			g_localStorage.error = EGL_NOT_INITIALIZED;
 			return 0;
 		}
 
-		walkerDpy = walkerDpy->next;
+		switch (name)
+		{
+		case EGL_CLIENT_APIS:
+		{
+			return "EGL_OPENGL_API";
+		}
+		break;
+		case EGL_VENDOR:
+		{
+			return _EGL_VENDOR;
+		}
+		break;
+		case EGL_VERSION:
+		{
+			return _EGL_VERSION;
+		}
+		break;
+		case EGL_EXTENSIONS:
+		{
+			return "";
+		}
+		break;
+		}
+
+		g_localStorage.error = EGL_BAD_PARAMETER;
+		return 0;
 	}
 
 	g_localStorage.error = EGL_BAD_DISPLAY;
-
 	return 0;
 }
 
-EGLBoolean _eglQuerySurface (EGLDisplay dpy, EGLSurface surface, EGLint attribute, EGLint *value)
+EGLBoolean _eglQuerySurface(EGLDisplay dpy, EGLSurface surface, EGLint attribute, EGLint *value)
 {
 	// TODO Implement querying a surface.
+
+	EGLDisplayImpl* walkerDpy = findStorageDisplay(dpy);
+	if (walkerDpy)
+	{
+		if (!walkerDpy->initialized || walkerDpy->destroy)
+		{
+			g_localStorage.error = EGL_NOT_INITIALIZED;
+			return EGL_FALSE;
+		}
+	}
 
 	return EGL_FALSE;
 }
 
 EGLBoolean _eglSwapBuffers(EGLDisplay dpy, EGLSurface surface)
 {
-	EGLDisplayImpl* walkerDpy = g_localStorage.rootDpy;
-
-	while (walkerDpy)
+	EGLDisplayImpl* walkerDpy = findStorageDisplay(dpy);
+	if (walkerDpy)
 	{
-		if ((EGLDisplay)walkerDpy == dpy)
+		if (!walkerDpy->initialized || walkerDpy->destroy)
 		{
-			if (!walkerDpy->initialized || walkerDpy->destroy)
-			{
-				g_localStorage.error = EGL_NOT_INITIALIZED;
-
-				return 0;
-			}
-
-			EGLSurfaceImpl* walkerSurface = walkerDpy->rootSurface;
-
-			while (walkerSurface)
-			{
-				if ((EGLSurface)walkerSurface == surface)
-				{
-					if (!walkerSurface->initialized || walkerSurface->destroy)
-					{
-						g_localStorage.error = EGL_BAD_SURFACE;
-
-						return EGL_FALSE;
-					}
-
-					return __swapBuffers(walkerDpy, walkerSurface);
-				}
-
-				walkerSurface = walkerSurface->next;
-			}
-
-			g_localStorage.error = EGL_BAD_SURFACE;
-
-			return EGL_FALSE;
+			g_localStorage.error = EGL_NOT_INITIALIZED;
+			return 0;
 		}
 
-		walkerDpy = walkerDpy->next;
+		EGLSurfaceImpl* walkerSurface = walkerDpy->rootSurface;
+		while (walkerSurface)
+		{
+			if ((EGLSurface)walkerSurface == surface)
+			{
+				if (!walkerSurface->initialized || walkerSurface->destroy)
+				{
+					g_localStorage.error = EGL_BAD_SURFACE;
+					return EGL_FALSE;
+				}
+
+				return __swapBuffers(walkerDpy, walkerSurface);
+			}
+
+			walkerSurface = walkerSurface->next;
+		}
+
+		g_localStorage.error = EGL_BAD_SURFACE;
+		return EGL_FALSE;
 	}
 
 	g_localStorage.error = EGL_BAD_DISPLAY;
-
 	return EGL_FALSE;
 }
 
 EGLBoolean _eglTerminate(EGLDisplay dpy)
 {
-	EGLDisplayImpl* walkerDpy = g_localStorage.rootDpy;
-
-	while (walkerDpy)
+	EGLDisplayImpl* walkerDpy = findStorageDisplay(dpy);
+	if (walkerDpy)
 	{
-		if ((EGLDisplay)walkerDpy == dpy)
+		if (!walkerDpy->initialized || walkerDpy->destroy)
 		{
-			if (!walkerDpy->initialized || walkerDpy->destroy)
-			{
-				g_localStorage.error = EGL_BAD_DISPLAY;
-
-				return EGL_FALSE;
-			}
-
-			walkerDpy->initialized = EGL_FALSE;
-			walkerDpy->destroy = EGL_TRUE;
-
-			_eglInternalCleanup();
-
-			return EGL_TRUE;
+			g_localStorage.error = EGL_BAD_DISPLAY;
+			return EGL_FALSE;
 		}
 
-		walkerDpy = walkerDpy->next;
+		walkerDpy->initialized = EGL_FALSE;
+		walkerDpy->destroy = EGL_TRUE;
+
+		_eglInternalCleanup();
+
+		return EGL_TRUE;
 	}
 
 	g_localStorage.error = EGL_BAD_DISPLAY;
-
 	return EGL_FALSE;
 }
 
@@ -2296,12 +2103,10 @@ EGLBoolean _eglWaitNative(EGLint engine)
 	if (engine != EGL_CORE_NATIVE_ENGINE)
 	{
 		g_localStorage.error = EGL_BAD_PARAMETER;
-
 		return EGL_FALSE;
 	}
 
 	EGLDisplayImpl* walkerDpy = g_localStorage.rootDpy;
-
 	while (walkerDpy)
 	{
 		if (walkerDpy->currentCtx == g_localStorage.currentCtx)
@@ -2309,14 +2114,12 @@ EGLBoolean _eglWaitNative(EGLint engine)
 			if (walkerDpy->currentDraw && (!walkerDpy->currentDraw->initialized || walkerDpy->currentDraw->destroy))
 			{
 				g_localStorage.error = EGL_BAD_CURRENT_SURFACE;
-
 				return EGL_FALSE;
 			}
 
 			if (walkerDpy->currentRead && (!walkerDpy->currentRead->initialized || walkerDpy->currentRead->destroy))
 			{
 				g_localStorage.error = EGL_BAD_CURRENT_SURFACE;
-
 				return EGL_FALSE;
 			}
 
@@ -2327,9 +2130,7 @@ EGLBoolean _eglWaitNative(EGLint engine)
 	}
 
 	if (g_localStorage.api == EGL_OPENGL_API)
-	{
 		glFinish();
-	}
 
 	return EGL_TRUE;
 }
@@ -2340,41 +2141,31 @@ EGLBoolean _eglWaitNative(EGLint engine)
 
 EGLBoolean _eglSwapInterval(EGLDisplay dpy, EGLint interval)
 {
-	EGLDisplayImpl* walkerDpy = g_localStorage.rootDpy;
-
-	while (walkerDpy)
+	EGLDisplayImpl* walkerDpy = findStorageDisplay(dpy);
+	if (walkerDpy)
 	{
-		if ((EGLDisplay)walkerDpy == dpy)
+		if (!walkerDpy->initialized || walkerDpy->destroy)
 		{
-			if (!walkerDpy->initialized || walkerDpy->destroy)
-			{
-				g_localStorage.error = EGL_BAD_DISPLAY;
-
-				return EGL_FALSE;
-			}
-
-			if (walkerDpy->currentDraw == EGL_NO_SURFACE || walkerDpy->currentRead == EGL_NO_SURFACE)
-			{
-				g_localStorage.error = EGL_BAD_SURFACE;
-
-				return EGL_FALSE;
-			}
-
-			if (walkerDpy->currentCtx == EGL_NO_CONTEXT)
-			{
-				g_localStorage.error = EGL_BAD_CONTEXT;
-
-				return EGL_FALSE;
-			}
-
-			return __swapInterval(walkerDpy, interval);
+			g_localStorage.error = EGL_BAD_DISPLAY;
+			return EGL_FALSE;
 		}
 
-		walkerDpy = walkerDpy->next;
+		if (walkerDpy->currentDraw == EGL_NO_SURFACE || walkerDpy->currentRead == EGL_NO_SURFACE)
+		{
+			g_localStorage.error = EGL_BAD_SURFACE;
+			return EGL_FALSE;
+		}
+
+		if (walkerDpy->currentCtx == EGL_NO_CONTEXT)
+		{
+			g_localStorage.error = EGL_BAD_CONTEXT;
+			return EGL_FALSE;
+		}
+
+		return __swapInterval(walkerDpy, interval);
 	}
 
 	g_localStorage.error = EGL_BAD_DISPLAY;
-
 	return EGL_FALSE;
 }
 
@@ -2387,12 +2178,10 @@ EGLBoolean _eglBindAPI(EGLenum api)
 	if (api == EGL_OPENGL_API)
 	{
 		g_localStorage.api = api;
-
 		return EGL_TRUE;
 	}
 
 	g_localStorage.error = EGL_BAD_PARAMETER;
-
 	return EGL_FALSE;
 }
 
@@ -2409,7 +2198,6 @@ EGLBoolean _eglWaitClient(void)
 	}
 
 	EGLDisplayImpl* walkerDpy = g_localStorage.rootDpy;
-
 	while (walkerDpy)
 	{
 		if (walkerDpy->currentCtx == g_localStorage.currentCtx)
@@ -2422,14 +2210,12 @@ EGLBoolean _eglWaitClient(void)
 			if (walkerDpy->currentDraw && (!walkerDpy->currentDraw->initialized || walkerDpy->currentDraw->destroy))
 			{
 				g_localStorage.error = EGL_BAD_CURRENT_SURFACE;
-
 				return EGL_FALSE;
 			}
 
 			if (walkerDpy->currentRead && (!walkerDpy->currentRead->initialized || walkerDpy->currentRead->destroy))
 			{
 				g_localStorage.error = EGL_BAD_CURRENT_SURFACE;
-
 				return EGL_FALSE;
 			}
 
@@ -2440,9 +2226,7 @@ EGLBoolean _eglWaitClient(void)
 	}
 
 	if (g_localStorage.api == EGL_OPENGL_API)
-	{
 		glFinish();
-	}
 
 	return EGL_TRUE;
 }

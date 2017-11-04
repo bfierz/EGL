@@ -26,31 +26,31 @@
 
 #include "egl_internal.h"
 
-EGLBoolean __internalInit(NativeLocalStorageContainer* nativeLocalStorageContainer)
+EGLBoolean __internalInit(NativeLocalStorage* nativeLocalStorage)
 {
-	if (nativeLocalStorageContainer->display && nativeLocalStorageContainer->window && nativeLocalStorageContainer->ctx)
+	if (nativeLocalStorage->display && nativeLocalStorage->window && nativeLocalStorage->ctx)
 	{
 		return EGL_TRUE;
 	}
 
-	if (nativeLocalStorageContainer->display)
+	if (nativeLocalStorage->display)
 	{
 		return EGL_FALSE;
 	}
 
-	if (nativeLocalStorageContainer->window)
+	if (nativeLocalStorage->window)
 	{
 		return EGL_FALSE;
 	}
 
-	if (nativeLocalStorageContainer->ctx)
+	if (nativeLocalStorage->ctx)
 	{
 		return EGL_FALSE;
 	}
 
-	nativeLocalStorageContainer->display = XOpenDisplay(NULL);
+	nativeLocalStorage->display = XOpenDisplay(NULL);
 
-	if (!nativeLocalStorageContainer->display)
+	if (!nativeLocalStorage->display)
 	{
 		return EGL_FALSE;
 	}
@@ -61,30 +61,30 @@ EGLBoolean __internalInit(NativeLocalStorageContainer* nativeLocalStorageContain
 	int glxMinor;
 
 	// GLX version 1.4 or higher needed.
-	if (!glXQueryVersion(nativeLocalStorageContainer->display, &glxMajor, &glxMinor))
+	if (!glXQueryVersion(nativeLocalStorage->display, &glxMajor, &glxMinor))
 	{
-		XCloseDisplay(nativeLocalStorageContainer->display);
-		nativeLocalStorageContainer->display = 0;
+		XCloseDisplay(nativeLocalStorage->display);
+		nativeLocalStorage->display = 0;
 
 		return EGL_FALSE;
 	}
 
 	if (glxMajor < 1 || (glxMajor == 1 && glxMinor < 4))
 	{
-		XCloseDisplay(nativeLocalStorageContainer->display);
-		nativeLocalStorageContainer->display = 0;
+		XCloseDisplay(nativeLocalStorage->display);
+		nativeLocalStorage->display = 0;
 
 		return EGL_FALSE;
 	}
 
 	//
 
-	nativeLocalStorageContainer->window = DefaultRootWindow(nativeLocalStorageContainer->display);
+	nativeLocalStorage->window = DefaultRootWindow(nativeLocalStorage->display);
 
-	if (!nativeLocalStorageContainer->window)
+	if (!nativeLocalStorage->window)
 	{
-		XCloseDisplay(nativeLocalStorageContainer->display);
-		nativeLocalStorageContainer->display = 0;
+		XCloseDisplay(nativeLocalStorage->display);
+		nativeLocalStorage->display = 0;
 
 		return EGL_FALSE;
 	}
@@ -96,39 +96,39 @@ EGLBoolean __internalInit(NativeLocalStorageContainer* nativeLocalStorageContain
 		None
 	};
 
-	XVisualInfo* visualInfo = glXChooseVisual(nativeLocalStorageContainer->display, 0, dummyAttribList);
+	XVisualInfo* visualInfo = glXChooseVisual(nativeLocalStorage->display, 0, dummyAttribList);
 
 	if (!visualInfo)
 	{
-		nativeLocalStorageContainer->window = 0;
+		nativeLocalStorage->window = 0;
 
-		XCloseDisplay(nativeLocalStorageContainer->display);
-		nativeLocalStorageContainer->display = 0;
-
-		return EGL_FALSE;
-	}
-
-	nativeLocalStorageContainer->ctx = glXCreateContext(nativeLocalStorageContainer->display, visualInfo, NULL, True);
-
-	if (!nativeLocalStorageContainer->ctx)
-	{
-		nativeLocalStorageContainer->window = 0;
-
-		XCloseDisplay(nativeLocalStorageContainer->display);
-		nativeLocalStorageContainer->display = 0;
+		XCloseDisplay(nativeLocalStorage->display);
+		nativeLocalStorage->display = 0;
 
 		return EGL_FALSE;
 	}
 
-	if (!glXMakeCurrent(nativeLocalStorageContainer->display, nativeLocalStorageContainer->window, nativeLocalStorageContainer->ctx))
+	nativeLocalStorage->ctx = glXCreateContext(nativeLocalStorage->display, visualInfo, NULL, True);
+
+	if (!nativeLocalStorage->ctx)
 	{
-		glXDestroyContext(nativeLocalStorageContainer->display, nativeLocalStorageContainer->ctx);
-		nativeLocalStorageContainer->ctx = 0;
+		nativeLocalStorage->window = 0;
 
-		nativeLocalStorageContainer->window = 0;
+		XCloseDisplay(nativeLocalStorage->display);
+		nativeLocalStorage->display = 0;
 
-		XCloseDisplay(nativeLocalStorageContainer->display);
-		nativeLocalStorageContainer->display = 0;
+		return EGL_FALSE;
+	}
+
+	if (!glXMakeCurrent(nativeLocalStorage->display, nativeLocalStorage->window, nativeLocalStorage->ctx))
+	{
+		glXDestroyContext(nativeLocalStorage->display, nativeLocalStorage->ctx);
+		nativeLocalStorage->ctx = 0;
+
+		nativeLocalStorage->window = 0;
+
+		XCloseDisplay(nativeLocalStorage->display);
+		nativeLocalStorage->display = 0;
 
 		return EGL_FALSE;
 	}
@@ -136,15 +136,15 @@ EGLBoolean __internalInit(NativeLocalStorageContainer* nativeLocalStorageContain
 	glewExperimental = GL_TRUE;
 	if (glewInit() != GL_NO_ERROR)
 	{
-		glXMakeCurrent(nativeLocalStorageContainer->display, 0, 0);
+		glXMakeCurrent(nativeLocalStorage->display, 0, 0);
 
-		glXDestroyContext(nativeLocalStorageContainer->display, nativeLocalStorageContainer->ctx);
-		nativeLocalStorageContainer->ctx = 0;
+		glXDestroyContext(nativeLocalStorage->display, nativeLocalStorage->ctx);
+		nativeLocalStorage->ctx = 0;
 
-		nativeLocalStorageContainer->window = 0;
+		nativeLocalStorage->window = 0;
 
-		XCloseDisplay(nativeLocalStorageContainer->display);
-		nativeLocalStorageContainer->display = 0;
+		XCloseDisplay(nativeLocalStorage->display);
+		nativeLocalStorage->display = 0;
 
 		return EGL_FALSE;
 	}
@@ -152,47 +152,47 @@ EGLBoolean __internalInit(NativeLocalStorageContainer* nativeLocalStorageContain
 	return EGL_TRUE;
 }
 
-EGLBoolean __internalTerminate(NativeLocalStorageContainer* nativeLocalStorageContainer)
+EGLBoolean __internalTerminate(NativeLocalStorage* nativeLocalStorage)
 {
-	if (!nativeLocalStorageContainer)
+	if (!nativeLocalStorage)
 	{
 		return EGL_FALSE;
 	}
 
-	if (nativeLocalStorageContainer->display)
+	if (nativeLocalStorage->display)
 	{
-		glXMakeContextCurrent(nativeLocalStorageContainer->display, 0, 0, 0);
+		glXMakeContextCurrent(nativeLocalStorage->display, 0, 0, 0);
 	}
 
-	if (nativeLocalStorageContainer->display && nativeLocalStorageContainer->ctx)
+	if (nativeLocalStorage->display && nativeLocalStorage->ctx)
 	{
-		glXDestroyContext(nativeLocalStorageContainer->display, nativeLocalStorageContainer->ctx);
-		nativeLocalStorageContainer->ctx = 0;
+		glXDestroyContext(nativeLocalStorage->display, nativeLocalStorage->ctx);
+		nativeLocalStorage->ctx = 0;
 	}
 
-	if (nativeLocalStorageContainer->display && nativeLocalStorageContainer->window)
+	if (nativeLocalStorage->display && nativeLocalStorage->window)
 	{
-		XDestroyWindow(nativeLocalStorageContainer->display, nativeLocalStorageContainer->window);
-		nativeLocalStorageContainer->window = 0;
+		XDestroyWindow(nativeLocalStorage->display, nativeLocalStorage->window);
+		nativeLocalStorage->window = 0;
 	}
 
-	if (nativeLocalStorageContainer->display)
+	if (nativeLocalStorage->display)
 	{
-		XCloseDisplay(nativeLocalStorageContainer->display);
-		nativeLocalStorageContainer->display = 0;
+		XCloseDisplay(nativeLocalStorage->display);
+		nativeLocalStorage->display = 0;
 	}
 
 	return EGL_TRUE;
 }
 
-EGLBoolean __deleteContext(const EGLDisplayImpl* walkerDpy, const NativeContextContainer* nativeContextContainer)
+EGLBoolean __deleteContext(const EGLDisplayImpl* walkerDpy, NativeContext* nativeContext)
 {
-	if (!walkerDpy || !nativeContextContainer)
+	if (!walkerDpy || !nativeContext)
 	{
 		return EGL_FALSE;
 	}
 
-	glXDestroyContext(walkerDpy->display_id, nativeContextContainer->ctx);
+	glXDestroyContext(walkerDpy->display_id, nativeContext->ctx);
 
 	return EGL_TRUE;
 }
@@ -221,127 +221,127 @@ EGLBoolean __processAttribList(EGLint* target_attrib_list, const EGLint* attrib_
 
 		switch (attrib_list[attribListIndex])
 		{
-			case EGL_CONTEXT_MAJOR_VERSION:
-			{
-				if (value < 1)
-				{
-					*error = EGL_BAD_ATTRIBUTE;
-
-					return EGL_FALSE;
-				}
-
-				template_attrib_list[1] = value;
-			}
-			break;
-			case EGL_CONTEXT_MINOR_VERSION:
-			{
-				if (value < 0)
-				{
-					*error = EGL_BAD_ATTRIBUTE;
-
-					return EGL_FALSE;
-				}
-
-				template_attrib_list[3] = value;
-			}
-			break;
-			case EGL_CONTEXT_OPENGL_PROFILE_MASK:
-			{
-				if (value == EGL_CONTEXT_OPENGL_CORE_PROFILE_BIT)
-				{
-					template_attrib_list[7] = GLX_CONTEXT_CORE_PROFILE_BIT_ARB;
-				}
-				else if (value == EGL_CONTEXT_OPENGL_COMPATIBILITY_PROFILE_BIT)
-				{
-					template_attrib_list[7] = GLX_CONTEXT_COMPATIBILITY_PROFILE_BIT_ARB;
-				}
-				else
-				{
-					*error = EGL_BAD_ATTRIBUTE;
-
-					return EGL_FALSE;
-				}
-			}
-			break;
-			case EGL_CONTEXT_OPENGL_DEBUG:
-			{
-				if (value == EGL_TRUE)
-				{
-					template_attrib_list[5] |= GLX_CONTEXT_DEBUG_BIT_ARB;
-				}
-				else if (value == EGL_FALSE)
-				{
-					template_attrib_list[5] &= ~GLX_CONTEXT_DEBUG_BIT_ARB;
-				}
-				else
-				{
-					*error = EGL_BAD_ATTRIBUTE;
-
-					return EGL_FALSE;
-				}
-			}
-			break;
-			case EGL_CONTEXT_OPENGL_FORWARD_COMPATIBLE:
-			{
-				if (value == EGL_TRUE)
-				{
-					template_attrib_list[5] |= GLX_CONTEXT_FORWARD_COMPATIBLE_BIT_ARB;
-				}
-				else if (value == EGL_FALSE)
-				{
-					template_attrib_list[5] &= ~GLX_CONTEXT_FORWARD_COMPATIBLE_BIT_ARB;
-				}
-				else
-				{
-					*error = EGL_BAD_ATTRIBUTE;
-
-					return EGL_FALSE;
-				}
-			}
-			break;
-			case EGL_CONTEXT_OPENGL_ROBUST_ACCESS:
-			{
-				if (value == EGL_TRUE)
-				{
-					template_attrib_list[5] |= GLX_CONTEXT_ROBUST_ACCESS_BIT_ARB;
-				}
-				else if (value == EGL_FALSE)
-				{
-					template_attrib_list[5] &= ~GLX_CONTEXT_ROBUST_ACCESS_BIT_ARB;
-				}
-				else
-				{
-					*error = EGL_BAD_ATTRIBUTE;
-
-					return EGL_FALSE;
-				}
-			}
-			break;
-			case EGL_CONTEXT_OPENGL_RESET_NOTIFICATION_STRATEGY:
-			{
-				if (value == EGL_NO_RESET_NOTIFICATION)
-				{
-					template_attrib_list[9] = GLX_NO_RESET_NOTIFICATION_ARB;
-				}
-				else if (value == EGL_LOSE_CONTEXT_ON_RESET)
-				{
-					template_attrib_list[9] = GLX_LOSE_CONTEXT_ON_RESET_ARB;
-				}
-				else
-				{
-					*error = EGL_BAD_ATTRIBUTE;
-
-					return EGL_FALSE;
-				}
-			}
-			break;
-			default:
+		case EGL_CONTEXT_MAJOR_VERSION:
+		{
+			if (value < 1)
 			{
 				*error = EGL_BAD_ATTRIBUTE;
 
 				return EGL_FALSE;
 			}
-			break;
+
+			template_attrib_list[1] = value;
+		}
+		break;
+		case EGL_CONTEXT_MINOR_VERSION:
+		{
+			if (value < 0)
+			{
+				*error = EGL_BAD_ATTRIBUTE;
+
+				return EGL_FALSE;
+			}
+
+			template_attrib_list[3] = value;
+		}
+		break;
+		case EGL_CONTEXT_OPENGL_PROFILE_MASK:
+		{
+			if (value == EGL_CONTEXT_OPENGL_CORE_PROFILE_BIT)
+			{
+				template_attrib_list[7] = GLX_CONTEXT_CORE_PROFILE_BIT_ARB;
+			}
+			else if (value == EGL_CONTEXT_OPENGL_COMPATIBILITY_PROFILE_BIT)
+			{
+				template_attrib_list[7] = GLX_CONTEXT_COMPATIBILITY_PROFILE_BIT_ARB;
+			}
+			else
+			{
+				*error = EGL_BAD_ATTRIBUTE;
+
+				return EGL_FALSE;
+			}
+		}
+		break;
+		case EGL_CONTEXT_OPENGL_DEBUG:
+		{
+			if (value == EGL_TRUE)
+			{
+				template_attrib_list[5] |= GLX_CONTEXT_DEBUG_BIT_ARB;
+			}
+			else if (value == EGL_FALSE)
+			{
+				template_attrib_list[5] &= ~GLX_CONTEXT_DEBUG_BIT_ARB;
+			}
+			else
+			{
+				*error = EGL_BAD_ATTRIBUTE;
+
+				return EGL_FALSE;
+			}
+		}
+		break;
+		case EGL_CONTEXT_OPENGL_FORWARD_COMPATIBLE:
+		{
+			if (value == EGL_TRUE)
+			{
+				template_attrib_list[5] |= GLX_CONTEXT_FORWARD_COMPATIBLE_BIT_ARB;
+			}
+			else if (value == EGL_FALSE)
+			{
+				template_attrib_list[5] &= ~GLX_CONTEXT_FORWARD_COMPATIBLE_BIT_ARB;
+			}
+			else
+			{
+				*error = EGL_BAD_ATTRIBUTE;
+
+				return EGL_FALSE;
+			}
+		}
+		break;
+		case EGL_CONTEXT_OPENGL_ROBUST_ACCESS:
+		{
+			if (value == EGL_TRUE)
+			{
+				template_attrib_list[5] |= GLX_CONTEXT_ROBUST_ACCESS_BIT_ARB;
+			}
+			else if (value == EGL_FALSE)
+			{
+				template_attrib_list[5] &= ~GLX_CONTEXT_ROBUST_ACCESS_BIT_ARB;
+			}
+			else
+			{
+				*error = EGL_BAD_ATTRIBUTE;
+
+				return EGL_FALSE;
+			}
+		}
+		break;
+		case EGL_CONTEXT_OPENGL_RESET_NOTIFICATION_STRATEGY:
+		{
+			if (value == EGL_NO_RESET_NOTIFICATION)
+			{
+				template_attrib_list[9] = GLX_NO_RESET_NOTIFICATION_ARB;
+			}
+			else if (value == EGL_LOSE_CONTEXT_ON_RESET)
+			{
+				template_attrib_list[9] = GLX_LOSE_CONTEXT_ON_RESET_ARB;
+			}
+			else
+			{
+				*error = EGL_BAD_ATTRIBUTE;
+
+				return EGL_FALSE;
+			}
+		}
+		break;
+		default:
+		{
+			*error = EGL_BAD_ATTRIBUTE;
+
+			return EGL_FALSE;
+		}
+		break;
 		}
 
 		attribListIndex += 2;
@@ -377,68 +377,68 @@ EGLBoolean __createWindowSurface(EGLSurfaceImpl* newSurface, EGLNativeWindowType
 
 			switch (attrib_list[indexAttribList])
 			{
-				case EGL_GL_COLORSPACE:
+			case EGL_GL_COLORSPACE:
+			{
+				if (value == EGL_GL_COLORSPACE_LINEAR)
 				{
-					if (value == EGL_GL_COLORSPACE_LINEAR)
-					{
-						// Do nothing.
-					}
-					else if (value == EGL_GL_COLORSPACE_SRGB)
+					// Do nothing.
+				}
+				else if (value == EGL_GL_COLORSPACE_SRGB)
+				{
+					*error = EGL_BAD_MATCH;
+
+					return EGL_FALSE;
+				}
+				else
+				{
+					*error = EGL_BAD_ATTRIBUTE;
+
+					return EGL_FALSE;
+				}
+			}
+			break;
+			case EGL_RENDER_BUFFER:
+			{
+				if (value == EGL_SINGLE_BUFFER)
+				{
+					if (walkerConfig->doubleBuffer)
 					{
 						*error = EGL_BAD_MATCH;
 
 						return EGL_FALSE;
 					}
-					else
+				}
+				else if (value == EGL_BACK_BUFFER)
+				{
+					if (!walkerConfig->doubleBuffer)
 					{
-						*error = EGL_BAD_ATTRIBUTE;
+						*error = EGL_BAD_MATCH;
 
 						return EGL_FALSE;
 					}
 				}
-				break;
-				case EGL_RENDER_BUFFER:
+				else
 				{
-					if (value == EGL_SINGLE_BUFFER)
-					{
-						if (walkerConfig->doubleBuffer)
-						{
-							*error = EGL_BAD_MATCH;
-
-							return EGL_FALSE;
-						}
-					}
-					else if (value == EGL_BACK_BUFFER)
-					{
-						if (!walkerConfig->doubleBuffer)
-						{
-							*error = EGL_BAD_MATCH;
-
-							return EGL_FALSE;
-						}
-					}
-					else
-					{
-						*error = EGL_BAD_ATTRIBUTE;
-
-						return EGL_FALSE;
-					}
-				}
-				break;
-				case EGL_VG_ALPHA_FORMAT:
-				{
-					*error = EGL_BAD_MATCH;
+					*error = EGL_BAD_ATTRIBUTE;
 
 					return EGL_FALSE;
 				}
-				break;
-				case EGL_VG_COLORSPACE:
-				{
-					*error = EGL_BAD_MATCH;
+			}
+			break;
+			case EGL_VG_ALPHA_FORMAT:
+			{
+				*error = EGL_BAD_MATCH;
 
-					return EGL_FALSE;
-				}
-				break;
+				return EGL_FALSE;
+			}
+			break;
+			case EGL_VG_COLORSPACE:
+			{
+				*error = EGL_BAD_MATCH;
+
+				return EGL_FALSE;
+			}
+			break;
 			}
 
 			indexAttribList += 2;
@@ -556,15 +556,15 @@ EGLBoolean __createWindowSurface(EGLSurfaceImpl* newSurface, EGLNativeWindowType
 	newSurface->initialized = EGL_TRUE;
 	newSurface->destroy = EGL_FALSE;
 	newSurface->win = win;
-	newSurface->nativeSurfaceContainer.config = config;
-	newSurface->nativeSurfaceContainer.drawable = win;
+	newSurface->nativeSurface.config = config;
+	newSurface->nativeSurface.drawable = win;
 
 	return EGL_TRUE;
 }
 
-EGLBoolean __destroySurface(EGLNativeWindowType win, const NativeSurfaceContainer* nativeSurfaceContainer)
+EGLBoolean __destroySurface(EGLNativeWindowType win, NativeSurface* nativeSurface)
 {
-	if (!nativeSurfaceContainer)
+	if (!nativeSurface)
 	{
 		return EGL_FALSE;
 	}
@@ -576,12 +576,12 @@ EGLBoolean __destroySurface(EGLNativeWindowType win, const NativeSurfaceContaine
 
 __eglMustCastToProperFunctionPointerType __getProcAddress(const char *procname)
 {
-	return (__eglMustCastToProperFunctionPointerType )glXGetProcAddress((const GLubyte *)procname);
+	return (__eglMustCastToProperFunctionPointerType)glXGetProcAddress((const GLubyte *)procname);
 }
 
-EGLBoolean __initialize(EGLDisplayImpl* walkerDpy, const NativeLocalStorageContainer* nativeLocalStorageContainer, EGLint* error)
+EGLBoolean __initialize(EGLDisplayImpl* walkerDpy, const NativeLocalStorage* nativeLocalStorage, EGLint* error)
 {
-	if (!walkerDpy || !nativeLocalStorageContainer || !error)
+	if (!walkerDpy || !nativeLocalStorage || !error)
 	{
 		return EGL_FALSE;
 	}
@@ -945,26 +945,26 @@ EGLBoolean __initialize(EGLDisplayImpl* walkerDpy, const NativeLocalStorageConta
 	return EGL_TRUE;
 }
 
-EGLBoolean __createContext(NativeContextContainer* nativeContextContainer, const EGLDisplayImpl* walkerDpy, const NativeSurfaceContainer* nativeSurfaceContainer, const NativeContextContainer* sharedNativeContextContainer, const EGLint* attribList)
+EGLBoolean __createContext(NativeContext* nativeContext, const EGLDisplayImpl* walkerDpy, const NativeSurface* nativeSurface, const NativeContext* sharedNativeContextContainer, const EGLint* attribList)
 {
-	if (!nativeContextContainer || !walkerDpy || !nativeSurfaceContainer)
+	if (!nativeContext || !walkerDpy || !nativeSurface)
 	{
 		return EGL_FALSE;
 	}
 
-	nativeContextContainer->ctx = glXCreateContextAttribsARB(walkerDpy->display_id, nativeSurfaceContainer->config, sharedNativeContextContainer ? sharedNativeContextContainer->ctx : 0, True, attribList);
+	nativeContext->ctx = glXCreateContextAttribsARB(walkerDpy->display_id, nativeSurface->config, sharedNativeContextContainer ? sharedNativeContextContainer->ctx : 0, True, attribList);
 
-	return nativeContextContainer->ctx != 0;
+	return nativeContext->ctx != 0;
 }
 
-EGLBoolean __makeCurrent(const EGLDisplayImpl* walkerDpy, const NativeSurfaceContainer* nativeSurfaceContainer, const NativeContextContainer* nativeContextContainer)
+EGLBoolean __makeCurrent(const EGLDisplayImpl* walkerDpy, const NativeSurface* nativeSurface, const NativeContext* nativeContext)
 {
-	if (!walkerDpy || !nativeSurfaceContainer || !nativeContextContainer)
+	if (!walkerDpy || !nativeSurface || !nativeContext)
 	{
 		return EGL_FALSE;
 	}
 
-	return (EGLBoolean)glXMakeCurrent(walkerDpy->display_id, nativeSurfaceContainer->drawable, nativeContextContainer->ctx);
+	return (EGLBoolean)glXMakeCurrent(walkerDpy->display_id, nativeSurface->drawable, nativeContext->ctx);
 }
 
 EGLBoolean __swapBuffers(const EGLDisplayImpl* walkerDpy, const EGLSurfaceImpl* walkerSurface)
