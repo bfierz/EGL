@@ -58,3 +58,15 @@ target_link_libraries(egl
 	PRIVATE
 		glew_s
 )
+
+option(EGL_BUILD_EXAMPLE OFF)
+if (EGL_BUILD_EXAMPLE)
+	add_executable(egl_ctx_sample
+		example/main.cpp
+	)
+	target_link_libraries(egl_ctx_sample
+		PRIVATE
+			egl
+			${OPENGL_gl_LIBRARY}
+	)
+endif()
