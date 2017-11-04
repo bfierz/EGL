@@ -719,21 +719,15 @@ EGLBoolean __initialize(EGLDisplayImpl* walkerDpy, const NativeLocalStorage* nat
 			return EGL_FALSE;
 		}
 
-		if (!__GetPixelFormatAttrib(hdc, currentPixelFormat, WGL_BIND_TO_TEXTURE_RGB_ARB, &tmpConfig.bindToTextureRGB))
+		if (__GetPixelFormatAttrib(hdc, currentPixelFormat, WGL_BIND_TO_TEXTURE_RGB_ARB, &tmpConfig.bindToTextureRGB))
 		{
-			*error = EGL_NOT_INITIALIZED;
-			return EGL_FALSE;
+			tmpConfig.bindToTextureRGB = tmpConfig.bindToTextureRGB ? EGL_TRUE : EGL_FALSE;
 		}
 
-		tmpConfig.bindToTextureRGB = tmpConfig.bindToTextureRGB ? EGL_TRUE : EGL_FALSE;
-
-		if (!__GetPixelFormatAttrib(hdc, currentPixelFormat, WGL_BIND_TO_TEXTURE_RGBA_ARB, &tmpConfig.bindToTextureRGBA))
+		if (__GetPixelFormatAttrib(hdc, currentPixelFormat, WGL_BIND_TO_TEXTURE_RGBA_ARB, &tmpConfig.bindToTextureRGBA))
 		{
-			*error = EGL_NOT_INITIALIZED;
-			return EGL_FALSE;
+			tmpConfig.bindToTextureRGBA = tmpConfig.bindToTextureRGBA ? EGL_TRUE : EGL_FALSE;
 		}
-
-		tmpConfig.bindToTextureRGBA = tmpConfig.bindToTextureRGBA ? EGL_TRUE : EGL_FALSE;
 
 		if (!__GetPixelFormatAttrib(hdc, currentPixelFormat, WGL_MAX_PBUFFER_PIXELS_ARB, &tmpConfig.maxPBufferPixels))
 		{

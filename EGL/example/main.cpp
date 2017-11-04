@@ -23,6 +23,7 @@
  */
 
 #include <EGL/egl.h>
+#include <GL/glew.h>
 #include <GL/gl.h>
 
 #include <iostream>
@@ -82,15 +83,29 @@ constexpr EGLint config_attribute[] =
 constexpr EGLint context_attribute[] =
 {
 	EGL_CONTEXT_MAJOR_VERSION, 4,
-	EGL_CONTEXT_MINOR_VERSION, 5,
+	EGL_CONTEXT_MINOR_VERSION, 0,
+	EGL_CONTEXT_OPENGL_PROFILE_MASK, EGL_CONTEXT_OPENGL_CORE_PROFILE_BIT,
 	EGL_NONE
 };
 
 
 // Force the use of the NVIDIA GPU in an Optimus system
-extern "C"
+//extern "C"
+//{
+//	_declspec(dllexport) unsigned int NvOptimusEnablement = 0x00000001;
+//}
+
+const char* profileType()
 {
-	_declspec(dllexport) unsigned int NvOptimusEnablement = 0x00000001;
+	GLint profile;
+	glGetIntegerv(GL_CONTEXT_PROFILE_MASK, &profile);
+
+	if (profile == GL_CONTEXT_CORE_PROFILE_BIT)
+		return "Core";
+	else if (profile == GL_CONTEXT_COMPATIBILITY_PROFILE_BIT)
+		return "Compatibility";
+	else
+		return "Invalid";
 }
 
 int main(int argc, char ** argv)
@@ -101,8 +116,11 @@ int main(int argc, char ** argv)
 	// Initialize the default display
 	EGLDisplay display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
 	EGLint major, minor;
-	eglInitialize(display, &major, &minor);
-	std::cout << "EGL version: " << major << "." << minor << std::endl;
+	if (!eglInitialize(display, &major, &minor))
+	{
+		std::cerr << "Could not initialize EGL" << std::endl;
+		return -1;
+	}
 
 	// Find a matching frame buffer configuration
 	EGLConfig config;
@@ -122,12 +140,29 @@ int main(int argc, char ** argv)
 		std::cerr << "Could not make context current" << std::endl;
 		return -1;
 	}
+	
+	// Initialize glew
+	glewExperimental = GL_TRUE;
+	GLenum err = glewInit();
+	if (GLEW_OK != err)
+	{
+		std::cerr << "Error initializing GLEW: " << glewGetErrorString(err) << std::endl;
+		return -1;
+	}
+	
+	std::cout << "Status: Using EGL:      " << major << "." << minor << std::endl;
+	std::cout << "Status: Using OpenGL:   " << glGetString(GL_VERSION) << std::endl;
+	std::cout << "Status:       Vendor:   " << glGetString(GL_VENDOR) << std::endl;
+	std::cout << "Status:       Renderer: " << glGetString(GL_RENDERER) << std::endl;
+	std::cout << "Status:       Profile:  " << profileType() << std::endl;
+	std::cout << "Status:       Shading:  " << glGetString(GL_SHADING_LANGUAGE_VERSION) << std::endl;
+	std::cout << "Status: Using GLEW:     " << glewGetString(GLEW_VERSION) << std::endl;
 
 	glClearColor(1.0, 0.0, 1.0, 1.0);
 	glClear(GL_COLOR_BUFFER_BIT);
 	glFlush();
 	eglSwapBuffers(display, surface);
 
-	sleep(5000);
+	sleep(1000);
 	return 0;
 }

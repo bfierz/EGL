@@ -3,6 +3,8 @@
  *
  * The MIT License (MIT)
  *
+ * Copyright (c) since 2017 Basil Fierz
+ * Copyright (c) since 2016 Ant2i
  * Copyright (c) since 2014 Norbert Nopper
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy

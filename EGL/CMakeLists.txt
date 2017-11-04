@@ -64,9 +64,14 @@ if (EGL_BUILD_EXAMPLE)
 	add_executable(egl_ctx_sample
 		example/main.cpp
 	)
+	target_include_directories(egl_ctx_sample
+		PRIVATE
+			${CMAKE_CURRENT_BINARY_DIR}/glew/${GLEW_PAKET_NAME}/include
+	)
 	target_link_libraries(egl_ctx_sample
 		PRIVATE
 			egl
+			glew_s
 			${OPENGL_gl_LIBRARY}
 	)
 endif()
