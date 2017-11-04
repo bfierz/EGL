@@ -9,38 +9,6 @@ when developing OpenGL applications.
 The project is in early stage and not well tested, but an initialization as seen on
 https://www.khronos.org/registry/egl/sdk/docs/man/html/eglIntro.xhtml under Windows and X11 does already work.
 
-How to build EGL:
-
-1. Install Eclipse IDE for C/C++ Developers and a GNU Compiler Collection for your operating system.
-2. Import EGL as an existing project.
-3. Set the build configuration in Eclipse to your operating system.
-4. Build EGL.
-
-If you get build errors:
-
-- Please make sure, that you install all the needed header and libraries.
-
-SDKs and Libraries:
-
-- GLEW 1.12.0 http://glew.sourceforge.net/
-
-Build configuration naming:
-
-[CPU]_[GPU]_[Window System]_[OpenGL]_[Compiler]_[Configuration]
-
-CPU:								x64, x86
-GPU/Emulator (Optional):
-Window System: 						Windows, X11
-OpenGL (Optional):
-Compiler:							GCC, MinGW
-Configuration:						Debug, Release
-
-e.g. x86__Windows__MinGW_Debug
-
-
-Yours Norbert Nopper
-
-
 TODOs:
 
 - Check, if needed GL/WGL version is available. Otherwise this EGL lib will crash or just not work!
@@ -54,6 +22,8 @@ TODOs:
 - Cleanup source code.
 
 Changelog:
+
+11.04.2017 - Updated to GLEW 2.1.0. Improved handling of non-supported targets on Windows. Current version: 0.3.4.
 
 29.01.2015 - Updated to GLEW 1.12.0. Current version: v0.3.3.
 
