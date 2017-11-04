@@ -38,6 +38,8 @@ extern EGLBoolean _eglChooseConfig(EGLDisplay dpy, const EGLint *attrib_list, EG
 
 extern EGLContext _eglCreateContext(EGLDisplay dpy, EGLConfig config, EGLContext share_context, const EGLint *attrib_list);
 
+extern EGLSurface _eglCreatePbufferSurface(EGLDisplay dpy, EGLConfig config, const EGLint *attrib_list);
+
 extern EGLSurface _eglCreateWindowSurface(EGLDisplay dpy, EGLConfig config, EGLNativeWindowType win, const EGLint *attrib_list);
 
 extern EGLBoolean _eglDestroyContext(EGLDisplay dpy, EGLContext ctx);
@@ -131,9 +133,7 @@ EGLAPI EGLContext EGLAPIENTRY eglCreateContext(EGLDisplay dpy, EGLConfig config,
 
 EGLAPI EGLSurface EGLAPIENTRY eglCreatePbufferSurface(EGLDisplay dpy, EGLConfig config, const EGLint *attrib_list)
 {
-	// TODO Implement.
-
-	return EGL_NO_SURFACE;
+	return _eglCreatePbufferSurface(dpy, config, attrib_list);
 }
 
 EGLAPI EGLSurface EGLAPIENTRY eglCreatePixmapSurface(EGLDisplay dpy, EGLConfig config, EGLNativePixmapType pixmap, const EGLint *attrib_list)

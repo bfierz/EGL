@@ -3,6 +3,8 @@
  *
  * The MIT License (MIT)
  *
+ * Copyright (c) since 2017 Basil Fierz
+ * Copyright (c) since 2016 Ant2i
  * Copyright (c) since 2014 Norbert Nopper
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -365,6 +367,200 @@ EGLBoolean __processAttribList(EGLint* target_attrib_list, const EGLint* attrib_
 	return EGL_TRUE;
 }
 
+EGLBoolean __createPbufferSurface(EGLSurfaceImpl* newSurface, const NativeLocalStorage* nativeLocalStorage, const EGLint *attrib_list, const EGLDisplayImpl* walkerDpy, const EGLConfigImpl* walkerConfig, EGLint* error)
+{
+	if (!newSurface || !walkerDpy || !walkerConfig || !error)
+	{
+		return EGL_FALSE;
+	}
+	
+	HWND hwnd = nativeLocalStorage->hwnd;
+	HDC hdc = GetDC(hwnd);
+
+	if (!hdc)
+	{
+		*error = EGL_BAD_NATIVE_WINDOW;
+
+		return EGL_FALSE;
+	}
+
+	// FIXME Check more values.
+	EGLint template_attrib_list[] = {
+			WGL_DRAW_TO_PBUFFER_ARB, GL_TRUE,
+			WGL_SUPPORT_OPENGL_ARB, GL_TRUE,
+			WGL_PIXEL_TYPE_ARB, WGL_TYPE_RGBA_ARB,
+			WGL_DOUBLE_BUFFER_ARB, GL_TRUE,
+			WGL_COLOR_BITS_ARB, 32,
+			WGL_RED_BITS_EXT, 8,
+			WGL_GREEN_BITS_EXT, 8,
+			WGL_BLUE_BITS_EXT, 8,
+			WGL_ALPHA_BITS_EXT, 8,
+			WGL_DEPTH_BITS_ARB, 24,
+			WGL_STENCIL_BITS_ARB, 8,
+			WGL_SAMPLE_BUFFERS_ARB, 0,
+			WGL_SAMPLES_ARB, 0,
+			0
+	};
+
+	if (attrib_list)
+	{
+		EGLint indexAttribList = 0;
+
+		while (attrib_list[indexAttribList] != EGL_NONE)
+		{
+			EGLint value = attrib_list[indexAttribList + 1];
+
+			switch (attrib_list[indexAttribList])
+			{
+			case EGL_GL_COLORSPACE:
+			{
+				if (value == EGL_GL_COLORSPACE_LINEAR)
+				{
+					// Do nothing.
+				}
+				else if (value == EGL_GL_COLORSPACE_SRGB)
+				{
+					ReleaseDC(hwnd, hdc);
+
+					*error = EGL_BAD_MATCH;
+
+					return EGL_FALSE;
+				}
+				else
+				{
+					ReleaseDC(hwnd, hdc);
+
+					*error = EGL_BAD_ATTRIBUTE;
+
+					return EGL_FALSE;
+				}
+			}
+			break;
+			case EGL_RENDER_BUFFER:
+			{
+				if (value == EGL_SINGLE_BUFFER)
+				{
+					template_attrib_list[7] = GL_FALSE;
+				}
+				else if (value == EGL_BACK_BUFFER)
+				{
+					template_attrib_list[7] = GL_TRUE;
+				}
+				else
+				{
+					ReleaseDC(hwnd, hdc);
+
+					*error = EGL_BAD_ATTRIBUTE;
+
+					return EGL_FALSE;
+				}
+			}
+			break;
+			case EGL_VG_ALPHA_FORMAT:
+			{
+				ReleaseDC(hwnd, hdc);
+
+				*error = EGL_BAD_MATCH;
+
+				return EGL_FALSE;
+			}
+			break;
+			case EGL_VG_COLORSPACE:
+			{
+				ReleaseDC(hwnd, hdc);
+
+				*error = EGL_BAD_MATCH;
+
+				return EGL_FALSE;
+			}
+			break;
+			}
+
+			indexAttribList += 2;
+
+			// More than 4 entries can not exist.
+			if (indexAttribList >= 4 * 2)
+			{
+				ReleaseDC(hwnd, hdc);
+
+				*error = EGL_BAD_ATTRIBUTE;
+
+				return EGL_FALSE;
+			}
+		}
+	}
+
+	// Create out of EGL configuration an array of WGL configuration and use it.
+	// see https://www.opengl.org/registry/specs/ARB/wgl_pixel_format.txt
+
+	template_attrib_list[9] = walkerConfig->bufferSize;
+	template_attrib_list[11] = walkerConfig->redSize;
+	template_attrib_list[13] = walkerConfig->blueSize;
+	template_attrib_list[15] = walkerConfig->greenSize;
+	template_attrib_list[17] = walkerConfig->alphaSize;
+	template_attrib_list[19] = walkerConfig->depthSize;
+	template_attrib_list[21] = walkerConfig->stencilSize;
+	template_attrib_list[23] = walkerConfig->sampleBuffers;
+	template_attrib_list[25] = walkerConfig->samples;
+
+	//
+
+	UINT wgl_max_formats = 1;
+	INT wgl_formats;
+	UINT wgl_num_formats;
+
+	if (wglChoosePixelFormatARB(hdc, template_attrib_list, 0, wgl_max_formats, &wgl_formats, &wgl_num_formats) == GL_FALSE)
+	{
+		ReleaseDC(hwnd, hdc);
+
+		*error = EGL_BAD_MATCH;
+
+		return EGL_FALSE;
+	}
+
+	if (wgl_num_formats == 0)
+	{
+		ReleaseDC(hwnd, hdc);
+
+		*error = EGL_BAD_MATCH;
+
+		return EGL_FALSE;
+	}
+
+	PIXELFORMATDESCRIPTOR pfd;
+
+	if (!DescribePixelFormat(hdc, wgl_formats, sizeof(PIXELFORMATDESCRIPTOR), &pfd))
+	{
+		ReleaseDC(hwnd, hdc);
+
+		*error = EGL_BAD_MATCH;
+
+		return EGL_FALSE;
+	}
+
+	if (!SetPixelFormat(hdc, wgl_formats, &pfd))
+	{
+		ReleaseDC(hwnd, hdc);
+
+		*error = EGL_BAD_MATCH;
+
+		return EGL_FALSE;
+	}
+
+	newSurface->drawToWindow = EGL_FALSE;
+	newSurface->drawToPBuffer = EGL_TRUE;
+	newSurface->drawToPixmap = EGL_FALSE;
+	newSurface->doubleBuffer = (EGLBoolean)template_attrib_list[7];
+	newSurface->configId = wgl_formats;
+
+	newSurface->initialized = EGL_TRUE;
+	newSurface->destroy = EGL_FALSE;
+	newSurface->win = hwnd;
+	newSurface->nativeSurface.hdc = hdc;
+
+	return EGL_TRUE;
+}
+
 EGLBoolean __createWindowSurface(EGLSurfaceImpl* newSurface, EGLNativeWindowType win, const EGLint *attrib_list, const EGLDisplayImpl* walkerDpy, const EGLConfigImpl* walkerConfig, EGLint* error)
 {
 	if (!newSurface || !walkerDpy || !walkerConfig || !error)
@@ -545,7 +741,7 @@ EGLBoolean __createWindowSurface(EGLSurfaceImpl* newSurface, EGLNativeWindowType
 	}
 
 	newSurface->drawToWindow = EGL_TRUE;
-	newSurface->drawToPixmap = EGL_FALSE;
+	newSurface->drawToPBuffer = EGL_FALSE;
 	newSurface->drawToPixmap = EGL_FALSE;
 	newSurface->doubleBuffer = (EGLBoolean)template_attrib_list[7];
 	newSurface->configId = wgl_formats;
@@ -641,6 +837,12 @@ EGLBoolean __initialize(EGLDisplayImpl* walkerDpy, const NativeLocalStorage* nat
 			*error = EGL_NOT_INITIALIZED;
 			return EGL_FALSE;
 		}
+		
+		if (!__GetPixelFormatAttrib(hdc, currentPixelFormat, WGL_DRAW_TO_PBUFFER_ARB, &tmpConfig.drawToPBuffer))
+		{
+			*error = EGL_NOT_INITIALIZED;
+			return EGL_FALSE;
+		}
 
 		if (!__GetPixelFormatAttrib(hdc, currentPixelFormat, WGL_DOUBLE_BUFFER_ARB, &tmpConfig.doubleBuffer))
 		{
@@ -648,7 +850,6 @@ EGLBoolean __initialize(EGLDisplayImpl* walkerDpy, const NativeLocalStorage* nat
 			return EGL_FALSE;
 		}
 
-		tmpConfig.drawToPBuffer = EGL_FALSE;
 		tmpConfig.conformant = EGL_OPENGL_BIT;
 		tmpConfig.renderableType = EGL_OPENGL_BIT;
 		tmpConfig.surfaceType = 0;

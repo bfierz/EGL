@@ -270,6 +270,8 @@ EGLBoolean __deleteContext(const EGLDisplayImpl* walkerDpy, NativeContext* nativ
 
 EGLBoolean __processAttribList(EGLint* target_attrib_list, const EGLint* attrib_list, EGLint* error);
 
+EGLBoolean __createPbufferSurface(EGLSurfaceImpl* newSurface, const EGLint *attrib_list, const EGLDisplayImpl* walkerDpy, const EGLConfigImpl* walkerConfig, EGLint* error);
+
 EGLBoolean __createWindowSurface(EGLSurfaceImpl* newSurface, EGLNativeWindowType win, const EGLint *attrib_list, const EGLDisplayImpl* walkerDpy, const EGLConfigImpl* walkerConfig, EGLint* error);
 
 EGLBoolean __destroySurface(EGLNativeWindowType win, NativeSurface* nativeSurface);

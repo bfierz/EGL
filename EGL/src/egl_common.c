@@ -1055,6 +1055,53 @@ EGLContext _eglCreateContext(EGLDisplay dpy, EGLConfig config, EGLContext share_
 	return EGL_NO_CONTEXT;
 }
 
+
+EGLSurface _eglCreatePbufferSurface(EGLDisplay dpy, EGLConfig config, const EGLint *attrib_list)
+{
+	EGLDisplayImpl* walkerDpy = findStorageDisplay(dpy);
+	if (walkerDpy)
+	{
+		if (!walkerDpy->initialized || walkerDpy->destroy)
+		{
+			g_localStorage.error = EGL_NOT_INITIALIZED;
+			return EGL_NO_SURFACE;
+		}
+
+		EGLConfigImpl* walkerConfig = walkerDpy->rootConfig;
+		while (walkerConfig)
+		{
+			if ((EGLConfig)walkerConfig == config)
+			{
+				EGLSurfaceImpl* newSurface = (EGLSurfaceImpl*)malloc(sizeof(EGLSurfaceImpl));
+
+				if (!newSurface)
+				{
+					g_localStorage.error = EGL_BAD_ALLOC;
+					return EGL_NO_SURFACE;
+				}
+
+				if (!__createPbufferSurface(newSurface, &g_localStorage.dummy, attrib_list, walkerDpy, walkerConfig, &g_localStorage.error))
+				{
+					free(newSurface);
+					return EGL_NO_SURFACE;
+				}
+
+				newSurface->next = walkerDpy->rootSurface;
+				walkerDpy->rootSurface = newSurface;
+				return (EGLSurface)newSurface;
+			}
+
+			walkerConfig = walkerConfig->next;
+		}
+
+		g_localStorage.error = EGL_BAD_CONFIG;
+		return EGL_NO_SURFACE;
+	}
+
+	g_localStorage.error = EGL_BAD_DISPLAY;
+	return EGL_NO_SURFACE;
+}
+
 EGLSurface _eglCreateWindowSurface(EGLDisplay dpy, EGLConfig config, EGLNativeWindowType win, const EGLint *attrib_list)
 {
 	EGLDisplayImpl* walkerDpy = findStorageDisplay(dpy);

@@ -23,7 +23,7 @@ TODOs:
 
 Changelog:
 
-11.04.2017 - Updated to GLEW 2.1.0. Improved handling of non-supported targets on Windows. Current version: 0.3.4.
+11.04.2017 - Updated to GLEW 2.1.0. Improved handling of non-supported targets on Windows. Implements Pbuffer surfaces on Windows. Current version: 0.3.4.
 
 29.01.2015 - Updated to GLEW 1.12.0. Current version: v0.3.3.
 
